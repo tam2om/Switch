@@ -61,7 +61,7 @@ def snmp_system(snmp: o.SnmpClient) -> SystemInfo:
                       sys_object_id=v.get(o.SYS_OBJECT_ID), description=v.get(o.SYS_DESCR))
 
 
-def snmp_health(snmp: o.SnmpClient) -> HealthInfo:
+def snmp_health(snmp: o.SnmpClient, include_temperature: bool = True) -> HealthInfo:
     h = HealthInfo()
     v = snmp.get([o.HP_CPU, o.SYS_UPTIME])
     if v.get(o.HP_CPU) is not None:
@@ -80,7 +80,7 @@ def snmp_health(snmp: o.SnmpClient) -> HealthInfo:
                 h.mem_free_bytes = int(f)
                 h.mem_pct = round(100.0 * (int(t) - int(f)) / int(t), 1)
     # Temperature: ENTITY-SENSOR-MIB, sensor type 8 = celsius. Absent sensors -> None (shown as unavailable).
-    types = snmp.table(o.ENT_SENSOR_TYPE)
+    types = snmp.table(o.ENT_SENSOR_TYPE) if include_temperature else {}
     if types:
         values = snmp.table(o.ENT_SENSOR_VALUE)
         scales = snmp.table(o.ENT_SENSOR_SCALE)

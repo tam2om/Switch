@@ -178,8 +178,13 @@ class AosSwitchDriver(SwitchDriver):
             info.firmware = info.firmware or snmp_info.firmware
         return info
 
-    def get_health(self) -> HealthInfo:
-        return system.snmp_health(self.snmp)
+    def get_health(self, include_temperature: bool = True) -> HealthInfo:
+        return system.snmp_health(self.snmp, include_temperature=include_temperature)
+
+    def get_port_status(self) -> list[PortInfo]:
+        if self.ctx.snmp_factory:
+            return ports.snmp_ports(self.snmp)
+        return self.get_ports()
 
     def get_ports(self) -> list[PortInfo]:
         rest_ports = None

@@ -35,4 +35,12 @@ SIM_CREDENTIALS = {
                "auth_protocol": "sha", "priv_protocol": "aes"},
     "ssh": {"username": "sim-ssh", "password": "sim-ssh-password"},
 }
-SIM_HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAISIMULATORxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+def _sim_host_key() -> str:
+    import base64
+    import hashlib
+
+    blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + hashlib.sha256(b"anm-simulator-host-key").digest()
+    return "ssh-ed25519 " + base64.b64encode(blob).decode()
+
+
+SIM_HOST_KEY = _sim_host_key()

@@ -96,9 +96,13 @@ def record_independent(**kwargs: Any) -> None:
 
 def verify_chain(db: Session, limit: int | None = None) -> dict:
     q = select(AuditLog).order_by(AuditLog.id)
-    prev = ""
+    prev: str | None = None
+    anchor = ""
     count = 0
     for row in db.execute(q).scalars():
+        if prev is None:
+            # Retention removes the oldest rows; the chain is verified from the oldest retained row.
+            prev = anchor = row.prev_hash
         # Microsecond precision is truncated to ms at write time, matching the stored value.
         if row.prev_hash != prev:
             return {"valid": False, "broken_at": row.id, "reason": "prev_hash mismatch", "checked": count}
@@ -108,4 +112,4 @@ def verify_chain(db: Session, limit: int | None = None) -> dict:
         count += 1
         if limit and count >= limit:
             break
-    return {"valid": True, "checked": count}
+    return {"valid": True, "checked": count, "anchor": anchor}

@@ -72,6 +72,7 @@ class Switch(Base, TimestampMixin):
     status_reason: Mapped[str] = mapped_column(String(255), default="")
     last_poll_at: Mapped[datetime | None] = mapped_column(nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    poll_failures: Mapped[int] = mapped_column(Integer, default=0)
     uptime_seconds: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cpu_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     mem_pct: Mapped[float | None] = mapped_column(Float, nullable=True)

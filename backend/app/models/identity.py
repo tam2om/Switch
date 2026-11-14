@@ -51,6 +51,7 @@ class User(Base, TimestampMixin):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     role_link: Mapped[UserRole | None] = relationship(back_populates="user", uselist=False, lazy="joined",
+                                                      foreign_keys="UserRole.user_id",
                                                       cascade="all, delete-orphan")
 
     @property
