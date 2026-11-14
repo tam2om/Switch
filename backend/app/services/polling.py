@@ -515,8 +515,8 @@ def poll_switch(switch_id: int, category: str) -> dict:
         if lock:
             try:
                 lock.release()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - lock may have expired; it is released by Redis TTL
+                log.debug("poll lock release failed", exc_info=True)
 
 
 def run_category(category: str, switch_ids: list[int] | None = None) -> dict:

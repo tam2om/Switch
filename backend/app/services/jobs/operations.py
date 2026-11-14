@@ -664,7 +664,10 @@ class AuthorizedManagers(_CliOperation):
         net = ip_network(f"{p.network}/{p.mask}", strict=False)
         mgmt_src = get_settings().allowed_client_networks
         server_ip = _server_source_ip(sw.mgmt_ip)
-        if server_ip and ip_address(server_ip) not in net:
+        if server_ip is None:
+            raise PrecheckFailed("Cannot determine this server's source address towards the switch; refusing a "
+                                 "change that could lock the application out")
+        if ip_address(server_ip) not in net:
             raise PrecheckFailed(f"This server's source address {server_ip} is outside {net}; the change would "
                                  f"lock the application out (allowed networks: {mgmt_src})")
 

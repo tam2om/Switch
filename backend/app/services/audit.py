@@ -95,7 +95,7 @@ def record_independent(**kwargs: Any) -> None:
 
 
 def verify_chain(db: Session, limit: int | None = None) -> dict:
-    q = select(AuditLog).order_by(AuditLog.id)
+    q = select(AuditLog).order_by(AuditLog.id).execution_options(populate_existing=True, yield_per=1000)
     prev: str | None = None
     anchor = ""
     count = 0

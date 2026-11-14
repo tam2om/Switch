@@ -1,4 +1,11 @@
-from app.models.config import ChangeApproval, ChangeJob, ChangeJobResult, ConfigBackup, ConfigDiff, ConfigurationTemplate
+from app.models.config import (
+    ChangeApproval,
+    ChangeJob,
+    ChangeJobResult,
+    ConfigBackup,
+    ConfigDiff,
+    ConfigurationTemplate,
+)
 from app.models.identity import (
     AuditLog,
     LoginAttempt,

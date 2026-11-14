@@ -22,7 +22,7 @@ POE_PRIORITIES = {"low", "high", "critical"}
 POE_ALLOC = {"usage", "class", "value"}
 
 
-class CommandValidationError(DriverError):
+class CommandValidationError(DriverError, ValueError):
     def __init__(self, message: str):
         super().__init__("invalid_parameter", message, protocol="cli")
 
@@ -139,7 +139,7 @@ def cmd_snmpv3_user(user: str, auth_proto: str, auth_pass: str, priv_proto: str,
                     access: str = "ro") -> list[str]:
     if not SNMP_USER_RE.match(user):
         raise CommandValidationError("Invalid SNMPv3 user name")
-    if auth_proto not in ("sha", "md5") or priv_proto not in ("aes", "des"):
+    if auth_proto != "sha" or priv_proto != "aes":  # MD5 and DES are not permitted
         raise CommandValidationError("Use SHA authentication and AES privacy")
     for secret in (auth_pass, priv_pass):
         if not re.match(r"^[A-Za-z0-9!#$%&*+,\-./:=?@^_~]{8,32}$", secret):

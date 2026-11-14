@@ -13,8 +13,8 @@ from app.core.permissions import permissions_for
 from app.db.base import utcnow
 from app.db.session import get_db
 from app.models import User, UserSession
-from app.services import auth as auth_service
 from app.services import audit
+from app.services import auth as auth_service
 from app.services import settings as sysset
 from app.services import users as user_service
 
