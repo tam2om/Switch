@@ -144,6 +144,15 @@ git pull
 docker compose up -d --build     # the backend applies database migrations before it serves requests
 ```
 
+Nginx re-resolves the `backend` and `frontend` names through Docker's DNS every 10 seconds, so containers that
+are recreated with a new address are picked up without restarting Nginx. Installations deployed before this change
+(where Nginx resolved the names only at startup and returned HTTP 502 after a redeploy until
+`docker compose restart nginx`) get the fix once with:
+
+```sh
+git pull && docker compose up -d --build && docker compose restart nginx
+```
+
 ### Rotating the encryption key
 
 1. `docker compose exec backend docker-entrypoint.sh cli generate-key` prints a new key.
