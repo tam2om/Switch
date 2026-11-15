@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -32,6 +33,7 @@ from app.models import (
 from app.services import audit, polling
 from app.services import settings as sysset
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/switches", tags=["switches"])
 
 
@@ -247,8 +249,19 @@ def delete_switch(switch_id: int, body: DeleteConfirm, user: User = Depends(requ
         raise bad_request("Type the switch hostname to confirm deletion", "confirmation_mismatch")
     audit.record(db, action="switch.delete", category="operational", actor=user, target_type="switch",
                  target_id=sw.id, details={"hostname": sw.hostname, "mgmt_ip": sw.mgmt_ip})
+    from app.models import ConfigBackup
+    from app.services.storage import get_store
+
+    keys = list(db.execute(select(ConfigBackup.storage_key).where(ConfigBackup.switch_id == sw.id)).scalars())
     db.delete(sw)
     db.commit()
+    # The backup rows are removed with the switch; remove their encrypted objects too (best effort, after commit).
+    store = get_store()
+    for key in keys:
+        try:
+            store.delete(key)
+        except Exception:  # noqa: BLE001 - an orphaned encrypted object is harmless; the switch is already deleted
+            log.warning("could not delete backup object for deleted switch %s", sw.id)
     return {"ok": True}
 
 

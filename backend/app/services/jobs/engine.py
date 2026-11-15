@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.crypto import get_keyring
 from app.core.errors import bad_request, conflict, forbidden, not_found
 from app.core.permissions import P, has_permission
@@ -291,7 +292,48 @@ def run_job(job_id: int) -> dict:
         return {"job_id": job_id, "status": job.status, "counts": counts}
 
 
+CHANGE_LOCK_WAIT_SECONDS = 900
+
+
+def _switch_change_lock(switch_id: int) -> Any:
+    """Only one change may touch a switch at a time, across jobs and workers. Waits for a running change on the
+    same switch to finish; fails closed (returns None) if the lock cannot be obtained."""
+    import redis
+
+    r = redis.Redis.from_url(get_settings().redis_url, socket_timeout=5)
+    lock = r.lock(f"anm:change:{switch_id}", timeout=3600, blocking_timeout=CHANGE_LOCK_WAIT_SECONDS)
+    try:
+        return lock if lock.acquire() else None
+    except redis.RedisError:
+        return None
+
+
 def _run_target(result_id: int) -> str:
+    factory = session_factory()
+    with factory() as db:
+        r = db.get(ChangeJobResult, result_id)
+        assert r is not None
+        switch_id = r.switch_id
+    lock = _switch_change_lock(switch_id)
+    if lock is None:
+        with factory() as db:
+            r = db.get(ChangeJobResult, result_id)
+            assert r is not None
+            r.status = "failed"
+            r.message = "Another change is still running on this switch (or the lock service is unavailable); nothing was changed"
+            r.finished_at = utcnow()
+            db.commit()
+        return "failed"
+    try:
+        return _run_target_locked(result_id)
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001 - lock may have expired; nothing else to do
+            log.warning("change lock for switch %s already released", switch_id)
+
+
+def _run_target_locked(result_id: int) -> str:
     factory = session_factory()
     db = factory()
     try:

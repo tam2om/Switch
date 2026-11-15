@@ -163,3 +163,16 @@ def test_cli_export_import_objects_roundtrip(tmp_path, monkeypatch, capsys):
     assert cli.main(["import-objects"]) == 0
     assert dst.keys() == ["3/backup-1.enc", "4/backup-2.enc"]
     assert dst.get("4/backup-2.enc") == b"cipher-2"
+
+
+def test_deleting_switch_removes_its_backup_objects(client, db, sim_switches):
+    sid = sim_switches(1)[0]
+    b = _backup(db, sid)
+    path = os.path.join(get_settings().storage_path, b.storage_key)
+    assert os.path.exists(path)
+    make_user(db, "super_admin", "root1")
+    login(client, "root1")
+    r = client.request("DELETE", f"/api/v1/switches/{sid}", json={"confirm_hostname": "SIM-SW-001"})
+    assert r.status_code == 200, r.text
+    assert not os.path.exists(path)
+    assert db.execute(select(ConfigBackup).where(ConfigBackup.switch_id == sid)).first() is None

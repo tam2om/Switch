@@ -217,3 +217,46 @@ def test_api_docs_disabled_by_default(monkeypatch):
 
     monkeypatch.delenv("ANM_API_DOCS_ENABLED", raising=False)
     assert Settings().api_docs_enabled is False
+
+
+def test_notification_sent_through_configured_smtp(db, sim_switches, monkeypatch):
+    from app.core.config import get_settings
+    from app.models import AlertRule, Notification, Switch
+    from app.services import alerts as asvc
+
+    sent: list = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            sent.append(("connect", host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self):
+            sent.append(("starttls",))
+
+        def login(self, user, password):
+            sent.append(("login", user))
+
+        def send_message(self, msg):
+            sent.append(("send", msg["To"], msg["Subject"], msg.get_content()))
+
+    s = get_settings()
+    monkeypatch.setattr(s, "smtp_host", "smtp.example.internal")
+    monkeypatch.setattr(s, "smtp_username", "anm")
+    monkeypatch.setattr(asvc.smtplib, "SMTP", FakeSMTP)
+    sw = db.get(Switch, sim_switches(1)[0])
+    db.query(AlertRule).filter_by(type="switch_offline").update({"notify_email": True, "recipients": ["noc@example.com"]})
+    asvc.raise_alert(db, type="switch_offline", switch=sw, message="SIM-SW-001 is not responding")
+    db.commit()
+    assert asvc.send_pending_notifications(db) == {"sent": 1, "failed": 0}
+    db.commit()
+    assert sent[0] == ("connect", "smtp.example.internal", 25) and ("starttls",) in sent and ("login", "anm") in sent
+    send = next(x for x in sent if x[0] == "send")
+    assert send[1] == "noc@example.com" and "SIM-SW-001 is not responding" in send[3]
+    n = db.query(Notification).one()
+    assert n.status == "sent" and n.sent_at is not None

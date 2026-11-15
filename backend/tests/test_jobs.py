@@ -241,3 +241,28 @@ def test_templates(client, db, sim_switches):
     assert job["status"] == "completed", job
     assert client.post("/api/v1/templates", json={"name": "bad", "operation": "config_restore",
                                                   "params": {"backup_id": 1}}).status_code == 400
+
+
+def test_change_waits_for_other_change_on_same_switch_and_fails_closed(client, db, sim_switches, monkeypatch):
+    import redis
+
+    from app.core.config import get_settings
+    from app.services.jobs import engine
+
+    ids = _prep(sim_switches)
+    monkeypatch.setattr(engine, "CHANGE_LOCK_WAIT_SECONDS", 1)
+    held = redis.Redis.from_url(get_settings().redis_url).lock(f"anm:change:{ids[0]}", timeout=30)
+    assert held.acquire(blocking=False)
+    try:
+        make_user(db, "admin", "ops")
+        login(client, "ops")
+        r = client.post("/api/v1/jobs", json={"operation": "port_description", "switch_ids": ids,
+                                              "params": {"items": [{"port": "7", "description": "Blocked"}]}})
+        assert r.status_code == 201, r.text
+        res = client.get(f"/api/v1/jobs/{r.json()['id']}").json()["results"][0]
+        assert res["status"] == "failed" and "Another change" in res["message"]
+    finally:
+        held.release()
+    port = db.execute(select(SwitchPort).where(SwitchPort.switch_id == ids[0], SwitchPort.name == "7")).scalar_one()
+    db.refresh(port)
+    assert port.description != "Blocked"

@@ -146,7 +146,7 @@ function SwitchDetailPage() {
               confirmLabel="Remove from inventory"
               message={
                 <>
-                  This removes <strong>{sw.hostname}</strong> and its collected data, credentials and backup records from the application database. Nothing is changed on the switch
+                  This removes <strong>{sw.hostname}</strong> and its collected data, credentials and configuration backups from the application. Nothing is changed on the switch
                   itself.
                 </>
               }
