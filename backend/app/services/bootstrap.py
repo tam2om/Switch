@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.permissions import ROLE_DESCRIPTIONS, ROLE_ORDER, ROLE_PERMISSIONS, P
+from app.drivers.aruba.aos_switch.models import MODELS as MODEL_CATALOG
 from app.models import AlertRule, Permission, PollingJob, Role, RolePermission, SwitchModel
 
 DEFAULT_ALERT_RULES = [
@@ -28,14 +29,8 @@ POLLING = [
     ("lldp", 300), ("inventory", 3600),
 ]
 
-MODELS = [
-    # Port layouts follow the published product specifications. hardware_verified stays False until confirmed
-    # on a physical unit (docs/HARDWARE_COMPATIBILITY.md).
-    ("JL356A", "Aruba 2540 24G PoE+ 4SFP+ Switch", 24, 4, 370.0),
-    ("JL354A", "Aruba 2540 24G 4SFP+ Switch", 24, 4, None),
-    ("JL357A", "Aruba 2540 48G PoE+ 4SFP+ Switch", 48, 4, 370.0),
-    ("JL355A", "Aruba 2540 48G 4SFP+ Switch", 48, 4, None),
-]
+# Port layouts follow the published product specifications (app/drivers/aruba/aos_switch/models.py).
+# hardware_verified stays False until confirmed on a physical unit (docs/HARDWARE_COMPATIBILITY.md).
 
 
 def sync_reference_data(db: Session) -> None:
@@ -71,10 +66,12 @@ def sync_reference_data(db: Session) -> None:
     for cat, interval in POLLING:
         if cat not in jobs:
             db.add(PollingJob(category=cat, interval_seconds=interval))
-    models = {m.product_number for m in db.execute(select(SwitchModel)).scalars()}
-    for pn, name, access, uplinks, budget in MODELS:
-        if pn not in models:
-            db.add(SwitchModel(product_number=pn, name=name, access_ports=access, uplink_ports=uplinks,
-                               poe_budget_w=budget,
-                               port_layout={"rows": 2, "access": access, "sfp": list(range(access + 1, access + 5))}))
+    models = {m.product_number: m for m in db.execute(select(SwitchModel)).scalars()}
+    for pn, spec in MODEL_CATALOG.items():
+        row = models.get(pn)
+        if row is None:
+            row = SwitchModel(product_number=pn)
+            db.add(row)
+        row.name, row.access_ports, row.uplink_ports = spec.name, spec.access_ports, spec.uplink_ports
+        row.poe_budget_w, row.port_layout = spec.poe_budget_w, spec.port_layout()
     db.flush()

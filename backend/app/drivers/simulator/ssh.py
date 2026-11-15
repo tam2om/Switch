@@ -31,7 +31,7 @@ class SimSshSession:
         if command == "show config":
             return "Startup configuration:\n\n" + (sw.startup_config or sw.running_config())
         if command == "show version":
-            return f"Image stamp:\n  {st.FIRMWARE}\n"
+            return f"Image stamp:\n  {sw.profile.firmware}\n"
         if command == "show system temperature":
             return f" System Temperature\n  Current: {sw.temperature()}C\n"
         return ""

@@ -26,7 +26,7 @@ class SimSnmpTransport:
         if not self._valid:
             raise DriverError("auth_failed", "SNMPv3 authentication failed (wrong digest)", protocol="snmp")
         t: dict[str, Any] = {
-            o.SYS_DESCR: f"{st.MODEL_DESC}, revision {st.FIRMWARE}, ROM {st.ROM} (/ws/swbuildm/rel_yc)",
+            o.SYS_DESCR: f"{sw.profile.description}, revision {sw.profile.firmware}, ROM {sw.profile.rom} (/ws/swbuildm/rel)",
             o.SYS_OBJECT_ID: "1.3.6.1.4.1.11.2.3.7.11.181.11",
             o.SYS_UPTIME: sw.uptime() * 100,
             o.SYS_NAME: sw.hostname,
@@ -35,7 +35,7 @@ class SimSnmpTransport:
             o.HP_CPU: sw.cpu(),
             f"{o.HP_MEM_TOTAL}.1": sw.mem_total(),
             f"{o.HP_MEM_FREE}.1": sw.mem_free(),
-            f"{o.PETH_MAIN_POWER}.1": int(st.POE_BUDGET_W),
+            f"{o.PETH_MAIN_POWER}.1": int(sw.profile.poe_budget_w),
             f"{o.PETH_MAIN_STATUS}.1": 1,
             f"{o.PETH_MAIN_CONSUMPTION}.1": int(round(sw.poe_consumed())),
             # One celsius sensor (type 8, scale 9=units). Real 2540 availability is unverified.
@@ -44,7 +44,7 @@ class SimSnmpTransport:
             f"{o.ENT_SENSOR_VALUE}.1": int(sw.temperature()),
         }
         for name, p in sw.ports.items():
-            i = int(name)
+            i = sw.if_index(name)
             c = sw.counters(p)
             up = sw.oper_up(p)
             t[f"{o.IF_DESCR}.{i}"] = name
@@ -74,7 +74,7 @@ class SimSnmpTransport:
         for m in sw.macs:
             if sw.oper_up(sw.ports[m["port"]]) and m["vlan"] in fdb_ids:
                 octs = ".".join(str(int(x, 16)) for x in m["mac"].split(":"))
-                t[f"{o.DOT1Q_FDB_PORT}.{fdb_ids[m['vlan']]}.{octs}"] = int(m["port"])
+                t[f"{o.DOT1Q_FDB_PORT}.{fdb_ids[m['vlan']]}.{octs}"] = sw.if_index(m["port"])
         for k, n in enumerate(sw.lldp, start=1):
             if sw.oper_up(sw.ports[n["local_port"]]):
                 idx = f"0.{n['local_port']}.{k}"

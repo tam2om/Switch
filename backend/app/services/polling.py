@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.base import utcnow
 from app.db.session import session_factory
+from app.drivers.aruba.aos_switch import models as hwmodels
 from app.drivers.base import DriverError, SwitchDriver
 from app.models import (
     MacLearnedEntry,
@@ -120,7 +121,7 @@ def poll_availability(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
             if p.if_index is None:
                 continue
             row = SwitchPort(switch_id=sw.id, if_index=p.if_index, name=p.name,
-                             port_number=int(p.name) if p.name.isdigit() else None, description=p.description,
+                             port_number=hwmodels.port_number(p.name), description=p.description,
                              is_uplink=p.name in (sw.uplink_ports or []), tagged_vlans=[])
             db.add(row)
             ports[p.name] = row
@@ -391,13 +392,16 @@ def sync_inventory(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
         sw.model_id = model.id if model else None
     ports = drv.get_ports()
     pmap = _port_map(db, sw)
+    spec = hwmodels.spec_for(sw.product_number)
+    poe_ports = {c.port_name for c in db.execute(select(PoeConfiguration).where(
+        PoeConfiguration.switch_id == sw.id)).scalars()}
     for p in ports:
         row = pmap.get(p.name)
         if row is None:
             if p.if_index is None:
                 continue
             row = SwitchPort(switch_id=sw.id, if_index=p.if_index, name=p.name, tagged_vlans=[],
-                             port_number=int(p.name) if p.name.isdigit() else None)
+                             port_number=hwmodels.port_number(p.name))
             db.add(row)
             pmap[p.name] = row
         if p.if_index is not None:
@@ -407,10 +411,9 @@ def sync_inventory(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
         row.config_mode, row.trunk_group = p.config_mode, p.trunk_group
         row.speed_mbps, row.duplex = p.speed_mbps, p.duplex
         row.is_uplink = p.name in (sw.uplink_ports or [])
-        if row.port_number and model_access_ports(sw) and row.port_number > model_access_ports(sw):
-            row.port_type = "SFP+"
-        elif row.port_number:
-            row.port_type = "10/100/1000T PoE+" if sw.product_number in ("JL356A", "JL357A") else "10/100/1000T"
+        ptype = hwmodels.port_type(spec, p.name, poe_port=p.name in poe_ports)
+        if ptype or not row.port_type:
+            row.port_type = ptype
     vlans = drv.get_vlans()
     existing_v = {v.vlan_id: v for v in db.execute(select(SwitchVlan).where(SwitchVlan.switch_id == sw.id)).scalars()}
     for v in vlans:
@@ -445,12 +448,6 @@ def sync_inventory(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
             row.untagged_vlan = untagged.get(name)
             row.tagged_vlans = sorted(tagged.get(name, []))
     return {"ports": len(ports), "vlans": len(vlans), "capabilities": sw.capabilities.get("resources")}
-
-
-def model_access_ports(sw: Switch) -> int | None:
-    if sw.model is not None:
-        return sw.model.access_ports
-    return 24 if (sw.product_number or "").startswith("JL35") else None
 
 
 CATEGORIES: dict[str, Callable[[Session, Switch, SwitchDriver], dict]] = {

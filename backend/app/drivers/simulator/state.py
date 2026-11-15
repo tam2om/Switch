@@ -1,4 +1,4 @@
-"""Deterministic Aruba 2540 simulator state.
+"""Deterministic AOS-Switch simulator state (Aruba 2540, Aruba 2930F-8G and HPE Aruba 5406R zl2 profiles).
 
 SIMULATED DATA ONLY. Simulated switches are flagged is_simulated=True and driver='simulator' everywhere
 (database, API, UI). Their state lives in Redis (shared by API and worker processes) or in memory for tests.
@@ -23,6 +23,39 @@ MODEL_DESC = "Aruba JL356A 2540-24G-PoE+-4SFP+ Switch"
 ACCESS_PORTS = 24
 UPLINK_PORTS = [25, 26, 27, 28]
 POE_BUDGET_W = 370.0
+
+
+@dataclass(frozen=True)
+class SimProfile:
+    product: str
+    description: str  # sysDescr prefix, as the real device formats it
+    firmware: str
+    rom: str
+    access: list[str]  # PoE-capable copper ports
+    uplinks: list[str]  # SFP+ ports; the first two are wired up/down the simulated chain
+    poe_budget_w: float
+    module_lines: tuple[str, ...]
+
+
+PROFILES: dict[str, SimProfile] = {
+    "JL356A": SimProfile("JL356A", MODEL_DESC, FIRMWARE, ROM, [str(n) for n in range(1, ACCESS_PORTS + 1)],
+                         [str(n) for n in UPLINK_PORTS], POE_BUDGET_W, ("module 1 type jl356a",)),
+    "JL258A": SimProfile("JL258A", "Aruba JL258A 2930F-8G-PoE+-2SFP+ Switch", "WC.16.11.0018", "WC.16.01.0008",
+                         [str(n) for n in range(1, 9)], ["9", "10"], 125.0, ("module 1 type jl258a",)),
+    # Chassis with a 24-port PoE+ module in slot A and an 8-port SFP+ module in slot B.
+    "J9850A": SimProfile("J9850A", "HP J9850A Switch 5406Rzl2", "KB.16.11.0018", "KB.16.01.0008",
+                         [f"A{n}" for n in range(1, 25)], [f"B{n}" for n in range(1, 9)], 1100.0,
+                         ("module A type j9986a", "module B type j9993a")),
+}
+
+
+def product_for(index: int, total: int) -> str:
+    """Fleets of 10 or more simulated switches include one 5406R zl2 and one 2930F-8G at the end of the chain."""
+    if total >= 10 and index == total - 1:
+        return "J9850A"
+    if total >= 10 and index == total:
+        return "JL258A"
+    return PRODUCT
 
 OUIS = [("00:1a:1e", "Aruba"), ("3c:2c:30", "Dell"), ("00:50:56", "VMware"), ("b4:96:91", "Intel"),
         ("00:0b:82", "Grandstream"), ("88:5a:92", "Cisco"), ("f4:39:09", "HP"), ("ac:1f:6b", "Supermicro"),
@@ -71,6 +104,23 @@ class SimSwitch:
     boot_epoch: float = 0.0
     rest_sessions: int = 0
     unsupported_rest: list[str] = field(default_factory=list)  # REST paths to answer 404 (fallback testing)
+    product: str = PRODUCT
+
+    # ---------- model ----------
+    @property
+    def profile(self) -> SimProfile:
+        return PROFILES.get(self.product, PROFILES[PRODUCT])
+
+    def is_poe_port(self, name: str) -> bool:
+        return name in self.profile.access
+
+    def if_index(self, name: str) -> int:
+        from app.drivers.aruba.aos_switch.models import default_if_index
+
+        return default_if_index(name) or 0
+
+    def sorted_ports(self) -> list[tuple[str, SimPort]]:
+        return sorted(self.ports.items(), key=lambda kv: self.if_index(kv[0]))
 
     # ---------- derived values ----------
     def uptime(self) -> int:
@@ -131,15 +181,15 @@ class SimSwitch:
 
     # ---------- configuration rendering ----------
     def running_config(self) -> str:
-        lines = [f"; {PRODUCT} Configuration Editor; Created on release #{FIRMWARE}", "; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:05",
-                 f'hostname "{self.hostname}"', "module 1 type jl356a"]
+        prof = self.profile
+        lines = [f"; {prof.product} Configuration Editor; Created on release #{prof.firmware}", "; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:05",
+                 f'hostname "{self.hostname}"', *prof.module_lines]
         if self.location:
             lines.append(f'snmp-server location "{self.location}"')
         lines += ["timesync sntp", "sntp unicast", "no telnet-server", "ip ssh filetransfer",
                   "no web-management plaintext", "snmpv3 enable"]
         lines += self.extra_config
-        for name in sorted(self.ports, key=_port_key):
-            p = self.ports[name]
+        for name, p in self.sorted_ports():
             body = []
             if p.description:
                 body.append(f'   name "{p.description}"')
@@ -147,7 +197,7 @@ class SimSwitch:
                 body.append("   disable")
             if p.config_mode != "auto":
                 body.append(f"   speed-duplex {p.config_mode}")
-            if int(name) <= ACCESS_PORTS:
+            if self.is_poe_port(name):
                 if not p.poe_enabled:
                     body.append("   no power-over-ethernet")
                 elif p.poe_priority != "low":
@@ -163,11 +213,11 @@ class SimSwitch:
             un = [p for p, v in self.untagged.items() if v == vid]
             tg = [p for p, vs in self.tagged.items() if vid in vs]
             if un:
-                lines.append(f"   untagged {_compress(un)}")
+                lines.append(f"   untagged {_compress(un, self.if_index)}")
             if tg:
-                lines.append(f"   tagged {_compress(tg)}")
+                lines.append(f"   tagged {_compress(tg, self.if_index)}")
             if not un and not tg:
-                lines.append("   no untagged 1-28")
+                lines.append(f"   no untagged {_compress(list(self.ports), self.if_index)}")
             if vid == self.mgmt_vlan:
                 lines.append(f"   ip address 10.{self.seed % 250}.{vid % 250}.{(self.seed % 200) + 10} 255.255.255.0")
             lines.append("   exit")
@@ -185,35 +235,42 @@ class SimSwitch:
         return cls(**d)
 
 
-def _port_key(name: str) -> tuple[int, str]:
-    return (int(name), "") if name.isdigit() else (999, name)
-
-
-def _compress(ports: list[str]) -> str:
-    nums = sorted(int(p) for p in ports if p.isdigit())
+def _compress(ports: list[str], if_index: Any) -> str:
+    """Port list in AOS-Switch range notation: 1-4,7 or A1-A3,B2."""
+    ordered = sorted(ports, key=if_index)
     out: list[str] = []
     i = 0
-    while i < len(nums):
+    while i < len(ordered):
         j = i
-        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+        while j + 1 < len(ordered) and if_index(ordered[j + 1]) == if_index(ordered[j]) + 1 \
+                and ordered[j + 1].rstrip("0123456789") == ordered[i].rstrip("0123456789"):
             j += 1
-        out.append(f"{nums[i]}-{nums[j]}" if j > i else str(nums[i]))
+        out.append(f"{ordered[i]}-{ordered[j]}" if j > i else ordered[i])
         i = j + 1
     return ",".join(out)
 
 
-def build_switch(index: int, ip: str, total: int = 1, location: str = "") -> SimSwitch:
-    """Create a deterministic simulated Aruba 2540 24G PoE+ switch."""
+def _chain_entry(local_port: str, index: int, total: int, remote_port_role: int) -> dict:
+    prof = PROFILES[product_for(index, total)]
+    port_id = prof.uplinks[remote_port_role]
+    return {"local_port": local_port, "chassis_id": f"02:5a:00:{(index >> 8) & 0xff:02x}:{index & 0xff:02x}:00",
+            "port_id": port_id, "port_description": port_id, "system_name": f"SIM-SW-{index:03d}",
+            "system_description": prof.description + f", revision {prof.firmware}", "mgmt_ip": None}
+
+
+def build_switch(index: int, ip: str, total: int = 1, location: str = "", product: str | None = None) -> SimSwitch:
+    """Create a deterministic simulated switch (model from product_for() unless given)."""
     rnd = random.Random(index * 7919 + 17)  # noqa: S311 - simulation only
     mac_tail = f"{(index >> 8) & 0xff:02x}:{index & 0xff:02x}:00"
     sw = SimSwitch(ip=ip, hostname=f"SIM-SW-{index:03d}", serial=f"SIMCN{index:06d}",
                    base_mac=f"02:5a:00:{mac_tail}", location=location or f"Sim Building {1 + index // 10}",
-                   seed=index, boot_epoch=time.time() - rnd.randint(3600, 90 * 86400))
+                   seed=index, boot_epoch=time.time() - rnd.randint(3600, 90 * 86400),
+                   product=product or product_for(index, total))
+    prof = sw.profile
     sw.vlans = {1: "DEFAULT_VLAN", 10: "DATA", 20: "VOICE", 30: "CCTV", 99: "MGMT"}
     sw.mgmt_vlan = 99
     profile = ["pc", "phone", "ap", "camera", "printer", "empty"]
-    for n in range(1, ACCESS_PORTS + 1):
-        name = str(n)
+    for name in prof.access:
         kind = profile[rnd.randint(0, 5)] if rnd.random() > 0.15 else "empty"
         p = SimPort(name=name)
         if kind != "empty":
@@ -240,30 +297,23 @@ def build_switch(index: int, ip: str, total: int = 1, location: str = "") -> Sim
         if rnd.random() < 0.03:
             p.error_rate = rnd.uniform(0.5, 5)
         sw.ports[name] = p
-    for n in UPLINK_PORTS:
-        name = str(n)
+    for k, name in enumerate(prof.uplinks):
         p = SimPort(name=name, poe_enabled=False, speed=10000)
-        if n in (25, 26):
+        if k < 2:
             p.link = True
             p.base_rate = rnd.uniform(2e6, 2e7)
-            p.description = "Uplink" if n == 25 else "Downlink"
+            p.description = "Uplink" if k == 0 else "Downlink"
         sw.ports[name] = p
         sw.tagged[name] = [10, 20, 30, 99]
         sw.untagged[name] = 1
-    # Daisy-chain LLDP topology: port 25 -> previous switch port 26.
+    # Daisy-chain LLDP topology: first uplink -> previous switch's second uplink.
     if index > 1:
-        prev = index - 1
-        sw.lldp.append({"local_port": "25", "chassis_id": f"02:5a:00:{(prev >> 8) & 0xff:02x}:{prev & 0xff:02x}:00",
-                        "port_id": "26", "port_description": "26", "system_name": f"SIM-SW-{prev:03d}",
-                        "system_description": MODEL_DESC + f", revision {FIRMWARE}", "mgmt_ip": None})
+        sw.lldp.append(_chain_entry(prof.uplinks[0], index - 1, total, 1))
     if index < total:
-        nxt = index + 1
-        sw.lldp.append({"local_port": "26", "chassis_id": f"02:5a:00:{(nxt >> 8) & 0xff:02x}:{nxt & 0xff:02x}:00",
-                        "port_id": "25", "port_description": "25", "system_name": f"SIM-SW-{nxt:03d}",
-                        "system_description": MODEL_DESC + f", revision {FIRMWARE}", "mgmt_ip": None})
+        sw.lldp.append(_chain_entry(prof.uplinks[1], index + 1, total, 0))
     for p_name, p in sw.ports.items():
         if p.description == "Wireless AP":
-            sw.lldp.append({"local_port": p_name, "chassis_id": "02:0b:86:00:00:%02x" % int(p_name),
+            sw.lldp.append({"local_port": p_name, "chassis_id": "02:0b:86:00:00:%02x" % sw.if_index(p_name),
                             "port_id": "eth0", "port_description": "eth0", "system_name": f"AP-{index:03d}-{p_name}",
                             "system_description": "Simulated access point", "mgmt_ip": None})
     sw.extra_config = []
@@ -338,10 +388,10 @@ class SimStore:
 store = SimStore()
 
 
-def get_or_create(ip: str, index: int = 1, total: int = 1, location: str = "") -> SimSwitch:
+def get_or_create(ip: str, index: int = 1, total: int = 1, location: str = "", product: str | None = None) -> SimSwitch:
     sw = store.get(ip)
     if sw is None:
-        sw = build_switch(index, ip, total, location)
+        sw = build_switch(index, ip, total, location, product)
         store.put(sw)
     return sw
 

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PortPanel, portState } from "@/components/PortPanel";
+import { PortPanel, groupBySlot, portState } from "@/components/PortPanel";
 import { SchemaForm, defaultsFor } from "@/components/SchemaForm";
 import { ConfirmDialog, SimBadge, StaleBadge } from "@/components/ui";
 import type { JsonSchema } from "@/lib/types";
@@ -29,6 +29,25 @@ describe("PortPanel", () => {
     expect(screen.getByRole("button", { name: "Port 4, Administratively disabled" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Port 6, PoE fault" }));
     expect(toggled).toEqual(["6"]);
+  });
+});
+
+describe("PortPanel on other models", () => {
+  it("lays out a 2930F-8G with 8 copper ports and 2 SFP+", () => {
+    const ports = Array.from({ length: 10 }, (_, i) => makePort(i + 1, { port_type: i < 8 ? "10/100/1000T PoE+" : "SFP+" }));
+    render(<PortPanel ports={ports} />);
+    expect(screen.getAllByRole("button", { name: /^Port \d+,/ })).toHaveLength(10);
+  });
+
+  it("groups 5406R zl2 ports by module slot in natural order", () => {
+    const names = ["B2", "A10", "A2", "B1", "A1"];
+    const ports = names.map((name, i) => makePort(i + 1, { name, if_index: i + 1, port_number: null, port_type: "" }));
+    const groups = groupBySlot(ports);
+    expect(groups.map((g) => g.slot)).toEqual(["A", "B"]);
+    expect(groups[0].ports.map((p) => p.name)).toEqual(["A1", "A2", "A10"]);
+    render(<PortPanel ports={ports} />);
+    expect(screen.getAllByText("Slot")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Port A10, Up" })).toBeInTheDocument();
   });
 });
 

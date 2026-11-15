@@ -1,6 +1,6 @@
 # Progress and continuation report
 
-Last updated: 2026-11-15. Branch: `claude/project-thread-zsgro2`.
+Last updated: 2026-11-15 (2930F and 5406R zl2 support added). Branch: `claude/project-thread-zsgro2`.
 
 ## Completed stages
 
@@ -25,7 +25,7 @@ and [FINAL_REPORT.md](FINAL_REPORT.md).
 
 ## Tests
 
-* Passing: backend 125, frontend unit 22, end-to-end 10 (dev stack and Compose stack), backup/restore round trip.
+* Passing: backend 131, frontend unit 26, end-to-end 10 (dev stack and Compose stack), backup/restore round trip.
 * Failing: none.
 
 ## Known issues

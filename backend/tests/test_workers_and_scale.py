@@ -1,4 +1,4 @@
-"""Background tasks, worker recovery and simulated fleet scale (100 switches / 2,800 ports)."""
+"""Background tasks, worker recovery and simulated fleet scale (100 switches / 2,786 ports)."""
 
 import time
 from datetime import timedelta
@@ -9,6 +9,9 @@ from app.db.base import utcnow
 from app.models import ChangeJob, ChangeJobResult, PollingJob, PortMetric, Switch, SwitchPort
 from app.services import polling
 from app.workers import tasks
+
+# 98 x 2540 (28 ports) + one 5406R zl2 (A1-A24, B1-B8) + one 2930F-8G (10 ports)
+FLEET_PORTS = 98 * 28 + 32 + 10
 
 
 def test_scheduler_tick_dispatches_due_categories(db, sim_switches, monkeypatch):
@@ -73,10 +76,10 @@ def test_hundred_switch_fleet_polling(db, sim_switches, client):
         res = polling.run_category(cat, ids)
         assert res["failed"] == 0, (cat, res)
         assert time.monotonic() - t1 < 60, f"{cat} too slow"
-    assert db.execute(select(func.count()).select_from(SwitchPort)).scalar_one() == 2800
+    assert db.execute(select(func.count()).select_from(SwitchPort)).scalar_one() == FLEET_PORTS
     time.sleep(1.0)
     polling.run_category("counters", ids)
-    assert db.execute(select(func.count()).select_from(PortMetric)).scalar_one() == 5600
+    assert db.execute(select(func.count()).select_from(PortMetric)).scalar_one() == 2 * FLEET_PORTS
     # Dashboard must stay responsive at fleet scale.
     from tests.conftest import login, make_user
 
@@ -85,7 +88,7 @@ def test_hundred_switch_fleet_polling(db, sim_switches, client):
     t2 = time.monotonic()
     o = client.get("/api/v1/dashboard/overview")
     elapsed = time.monotonic() - t2
-    assert o.status_code == 200 and o.json()["switches"]["total"] == 100 and o.json()["ports"]["total"] == 2800
+    assert o.status_code == 200 and o.json()["switches"]["total"] == 100 and o.json()["ports"]["total"] == FLEET_PORTS
     assert elapsed < 3.0, f"dashboard took {elapsed:.2f}s"
     assert client.get("/api/v1/switches", params={"page_size": 500}).json()["total"] == 100
     assert client.get("/api/v1/vlans/matrix").status_code == 200

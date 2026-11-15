@@ -11,7 +11,8 @@ import re
 
 from app.drivers.base import DriverError
 
-PORT_RE = re.compile(r"^(?:[A-H]?\d{1,2}|Trk\d{1,3})$")
+# 1..52 on fixed-port switches, A1..L24 on 5400R zl2 chassis slots, trunks Trk1..
+PORT_RE = re.compile(r"^(?:[A-L]?\d{1,2}|Trk\d{1,3})$")
 DESCRIPTION_RE = re.compile(r"^[A-Za-z0-9 _.,:/()#@+\-]{0,64}$")
 VLAN_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,32}$")
 HOST_RE = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3}){3}|[A-Za-z0-9.\-]{1,253})$")

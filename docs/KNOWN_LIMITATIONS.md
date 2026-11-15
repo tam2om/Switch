@@ -9,8 +9,12 @@ Listed honestly so nobody assumes more than has been shown.
   Field names, REST resource availability, CLI syntax of the security operations, temperature support and REST
   session limits may differ on YC.16.11.0018. Every capability is marked "documented", none "verified". Follow
   [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) before managing production switches.
-* Performance figures (each polling category for 100 switches / 2,800 ports finishing within 60 s in the test, the
+* Performance figures (each polling category for 100 switches / 2,786 ports finishing within 60 s in the test, the
   dashboard answering in under 3 s) come from the simulator scale test, not from real devices and network latency.
+
+* The 2930F-8G (JL258A) and 5406R zl2 (J9850A) are supported through the same driver but are also unvalidated. On the
+  5400R chassis, module types, VSF/stacking, redundant management modules, power supplies and fans are not read,
+  and slot ports on non-PoE modules have no port type (see HARDWARE_COMPATIBILITY.md, "Other models").
 
 ## Integrations
 

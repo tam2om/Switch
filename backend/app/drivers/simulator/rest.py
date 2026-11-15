@@ -10,7 +10,7 @@ import secrets
 import httpx
 
 from app.drivers.simulator import state as st
-from app.drivers.simulator.state import FIRMWARE, MODEL_DESC, PRODUCT, ROM, SimSwitch
+from app.drivers.simulator.state import PRODUCT, SimSwitch
 
 SIM_USER = "sim-rest"
 SIM_PASSWORD = "sim-only-not-a-real-credential"  # noqa: S105 - simulator only, documented
@@ -93,9 +93,10 @@ class SimRestHandler:
         if sub == "/system":
             return _resp(200, {"name": sw.hostname, "location": sw.location, "contact": "noc@example.invalid"})
         if sub == "/system/status":
-            return _resp(200, {"name": sw.hostname, "serial_number": sw.serial, "firmware_version": FIRMWARE,
-                               "rom_version": ROM, "hardware_revision": "0",
-                               "product_model": f"{MODEL_DESC.replace('Aruba ', '')}",
+            prof = sw.profile
+            return _resp(200, {"name": sw.hostname, "serial_number": sw.serial, "firmware_version": prof.firmware,
+                               "rom_version": prof.rom, "hardware_revision": "0",
+                               "product_model": prof.description.replace("Aruba ", "").replace("HP ", ""),
                                "base_ethernet_address": {"version": "MAV_ETHERNET",
                                                          "octets": sw.base_mac.replace(":", "")}})
         if sub == "/ports":
@@ -106,7 +107,7 @@ class SimRestHandler:
                                           "auto-100": "AUTO_100", "auto-1000": "AUTO_1000",
                                           "auto-10-100": "AUTO_10_100"}[p.config_mode],
                  "trunk_mode": "PTT_NONE", "lacp_status": "LAS_DISABLED", "trunk_group": ""}
-                for n, p in sorted(sw.ports.items(), key=lambda kv: int(kv[0]))]})
+                for n, p in sw.sorted_ports()]})
         if sub == "/vlans":
             return _resp(200, {"vlan_element": [
                 {"vlan_id": v, "name": n, "status": "VS_PORT_BASED", "type": "VT_STATIC",
@@ -121,12 +122,12 @@ class SimRestHandler:
                 {"port_id": n, "is_poe_enabled": p.poe_enabled, "poe_priority": f"PPP_{p.poe_priority.upper()}",
                  "poe_allocation_method": f"PPAM_{p.poe_alloc.upper()}", "allocated_power_in_watts": p.poe_value,
                  "pre_standard_detect_enabled": False}
-                for n, p in sorted(sw.ports.items(), key=lambda kv: int(kv[0])) if int(n) <= st.ACCESS_PORTS]})
+                for n, p in sw.sorted_ports() if sw.is_poe_port(n)]})
         if sub == "/poe/ports/stats":
             return _resp(200, {"port_poe_stats": [
                 {"port_id": n, "poe_detection_status": sw.poe_status(p), "power_class": p.poe_class or None,
                  "power_drawn_in_watts": sw.poe_drawn(p), "over_current_count": 1 if p.poe_fault else 0}
-                for n, p in sorted(sw.ports.items(), key=lambda kv: int(kv[0])) if int(n) <= st.ACCESS_PORTS]})
+                for n, p in sw.sorted_ports() if sw.is_poe_port(n)]})
         if sub == "/mac-table":
             return _resp(200, {"mac_table_entry_element": [
                 {"mac_address": m["mac"].replace(":", "")[:6] + "-" + m["mac"].replace(":", "")[6:],
@@ -159,7 +160,7 @@ class SimRestHandler:
 
     @staticmethod
     def _put_poe(sw: SimSwitch, pid: str, body: dict) -> httpx.Response:
-        if int(pid) > st.ACCESS_PORTS:
+        if not sw.is_poe_port(pid):
             raise ValueError("Port does not support PoE")
         p = sw.ports[pid]
         if "is_poe_enabled" in body:
@@ -241,7 +242,7 @@ class SimRestHandler:
             st.mutate(self.ip, lambda s: setattr(s, "startup_config", s.running_config()))
             out = ""
         elif cmd == "show version":
-            out = f"Image stamp: /ws/swbuildm/rel_yc_qaoff/code/build/tam(swbuildm_rel_yc_qaoff_rel_yc)\n{FIRMWARE}\n"
+            out = f"Image stamp: /ws/swbuildm/rel_yc_qaoff/code/build/tam(swbuildm_rel_yc_qaoff_rel_yc)\n{sw.profile.firmware}\n"
         else:
             return _resp(200, {"cmd": cmd, "status": "CCS_FAILURE", "error_msg": "Invalid input",
                                "result_base64_encoded": ""})

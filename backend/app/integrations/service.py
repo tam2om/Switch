@@ -61,8 +61,9 @@ def test(db: Session, kind: str, transport=None) -> dict:  # type: ignore[no-unt
 
 
 def _is_switch(d: dict) -> bool:
-    return d.get("device_category", "").lower() == "switch" or "2540" in d.get("model", "") or \
-        "switch" in d.get("model", "").lower()
+    model = d.get("model", "")
+    return d.get("device_category", "").lower() == "switch" or "switch" in model.lower() or \
+        any(f in model for f in ("2540", "2930", "5406", "5412"))
 
 
 def preview(db: Session, kind: str, transport=None) -> list[dict]:  # type: ignore[no-untyped-def]

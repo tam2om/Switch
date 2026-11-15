@@ -16,6 +16,7 @@ from app.core.errors import bad_request, conflict, not_found
 from app.core.permissions import P
 from app.db.session import get_db
 from app.drivers.aruba.aos_switch import cli_commands as cli
+from app.drivers.aruba.aos_switch.models import port_sort_key
 from app.drivers.base import DriverError
 from app.models import (
     MacLearnedEntry,
@@ -65,7 +66,7 @@ class SwitchIn(BaseModel):
     def _ports(cls, v: list[str]) -> list[str]:
         for p in v:
             cli.port(p)
-        return sorted(set(v), key=lambda x: (len(x), x))
+        return sorted(set(v), key=port_sort_key)
 
     @field_validator("protocols")
     @classmethod
@@ -381,8 +382,8 @@ def ports(switch_id: int, user: User = Depends(require(P.PORT_VIEW)), db: Sessio
         nbrs.setdefault(n.local_port, []).append({"system_name": n.system_name, "remote_port": n.remote_port,
                                                   "chassis_id": n.chassis_id, "remote_switch_id": n.remote_switch_id,
                                                   "source": n.source})
-    rows = db.execute(select(SwitchPort).where(SwitchPort.switch_id == sw.id)
-                      .order_by(SwitchPort.port_number.nulls_last(), SwitchPort.name)).scalars().all()
+    rows = sorted(db.execute(select(SwitchPort).where(SwitchPort.switch_id == sw.id)).scalars().all(),
+                  key=lambda r: port_sort_key(r.name))
     out = []
     for p in rows:
         pc = poe.get(p.name)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.drivers.aruba.aos_switch import snmp_client as o
+from app.drivers.aruba.aos_switch.models import default_if_index
 from app.drivers.base import PortCounters, PortInfo
 
 # REST config_mode enum <-> CLI speed-duplex keyword.
@@ -15,7 +16,8 @@ CONFIG_MODES_REV = {v: k for k, v in CONFIG_MODES.items()}
 
 
 def port_number(name: str) -> int | None:
-    return int(name) if name.isdigit() else None
+    """ifIndex assumed for a port first seen over REST (SNMP supplies the real one when available)."""
+    return default_if_index(name)
 
 
 def parse_rest_ports(data: dict) -> list[PortInfo]:

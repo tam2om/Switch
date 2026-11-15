@@ -40,7 +40,7 @@ def seed(db: Session, count: int) -> dict:
         state = st.get_or_create(ip, i, count, location=f"Sim {building} Floor {1 + (i % 4)}")
         sw = Switch(hostname=state.hostname, mgmt_ip=ip, driver="simulator", is_simulated=True, site_id=site.id,
                     building=building, floor=str(1 + (i % 4)), location=state.location,
-                    department=["IT", "Finance", "Operations", "HR", "Security"][i % 5], uplink_ports=["25", "26"],
+                    department=["IT", "Finance", "Operations", "HR", "Security"][i % 5], uplink_ports=state.profile.uplinks[:2],
                     status="unknown", ssh_host_key=SIM_HOST_KEY,
                     ssh_host_key_fingerprint=fingerprint(SIM_HOST_KEY.split()[1]), ssh_host_key_trusted=True,
                     notes="SIMULATED SWITCH - not real hardware")

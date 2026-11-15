@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.drivers.aruba.aos_switch.models import MODELS
+
 
 @dataclass(frozen=True)
 class Capability:
@@ -80,13 +82,10 @@ REGISTRY: dict[tuple[str, str], dict[str, Capability]] = {
     ("aos-switch", "16.11"): AOS_S_16_11,
 }
 
-SUPPORTED_PRODUCTS = {
-    # Product numbers are matched only after the device reports them; nothing is assumed from inventory.
-    "JL356A": "Aruba 2540 24G PoE+ 4SFP+ Switch",
-    "JL354A": "Aruba 2540 24G 4SFP+ Switch",
-    "JL357A": "Aruba 2540 48G PoE+ 4SFP+ Switch",
-    "JL355A": "Aruba 2540 48G 4SFP+ Switch",
-}
+# Product numbers are matched only after the device reports them; nothing is assumed from inventory.
+# All AOS-Switch 16.x trains (YC = 2540, WC = 2930F, KB = 5400R) use the 16.11 registry below; each REST resource is
+# still probed per switch, so a resource a model or firmware lacks falls back or is refused.
+SUPPORTED_PRODUCTS = {pn: m.name for pn, m in MODELS.items()}
 
 
 def firmware_train(firmware: str | None) -> str | None:

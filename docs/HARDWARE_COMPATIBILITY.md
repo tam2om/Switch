@@ -6,6 +6,7 @@
 |---|---|
 | Switch | Aruba 2540 24G PoE+ 4SFP+ (JL356A) |
 | Also recognised | JL354A (2540 24G), JL355A (2540 48G), JL357A (2540 48G PoE+) |
+| Also in the estate | Aruba 2930F-8G-PoE+-2SFP+ (JL258A), HP/HPE Aruba 5406R zl2 (J9850A); see "Other models" below |
 | Firmware | YC.16.11.0018 (AOS-Switch 16.11 train) |
 | REST API | v3 to v7; the driver reads `GET /rest/version` and uses the highest listed version up to v7 |
 | SNMP | v3 authPriv only (SHA, SHA-256, SHA-512 / AES-128, AES-192, AES-256) |
@@ -86,6 +87,40 @@ Generated from `backend/app/drivers/aruba/aos_switch/capabilities.py`
 Read commands allowed over SSH: `show running-config`, `show config`, `show system`, `show system temperature`,
 `show version`, `show interfaces brief`, `show vlans`, `show power-over-ethernet brief`, `show mac-address`,
 `show lldp info remote-device`, `show ip ssh`, `show snmpv3 enable`.
+
+## Other models
+
+All of these run AOS-Switch 16.x, so they use the same driver and the same capability registry as the 2540. The model
+is detected from the product number the switch reports (REST `/system/status` or SNMP `sysDescr`); nothing is
+assumed from inventory. The catalogue is in `backend/app/drivers/aruba/aos_switch/models.py`.
+
+| Model | Product numbers | Firmware train | Ports | PoE | Status |
+|---|---|---|---|---|---|
+| Aruba 2930F-8G-PoE+-2SFP+ | JL258A | WC.16.x | 1-8 copper PoE+, 9-10 SFP+ | 125 W budget | documented, simulated |
+| Aruba 2930F (other sizes) | JL253A-JL256A, JL259A-JL262A | WC.16.x | 24/48 copper + 4 SFP or SFP+ | 370 W on PoE models | documented |
+| HPE Aruba 5406R zl2 | J9850A, J9821A | KB.16.x | slot ports A1-F24, depends on modules | from the device (power supplies) | documented, simulated |
+| HPE Aruba 5412R zl2 | J9851A, J9822A | KB.16.x | slot ports A1-L24 | from the device | documented |
+
+How the application handles them:
+
+* **Port naming.** Fixed-port switches use numbers (1, 2, ... 10). The 5400R uses the slot letter plus the port
+  (A1, B24). Port identifiers A1-L24, 1-52 and trunks Trk1.. are accepted by every typed operation; anything else is
+  rejected before a command is built. Port lists are shown in natural order (A1, A2 ... A24, B1).
+* **Front-panel view.** Fixed-port models show odd/even rows with the SFP/SFP+ uplinks on the right. The 5400R
+  shows one block per module slot.
+* **Port type.** Taken from the model catalogue on fixed-port switches (copper PoE+ or SFP/SFP+). On the 5400R the
+  module type is not read yet, so slot ports are shown as "PoE+" when the device reports PoE for them and are left
+  blank otherwise (an SFP+ module port is not labelled SFP+).
+* **PoE.** Budget and consumption come from POWER-ETHERNET-MIB, summed over all PSE rows (a chassis can report more
+  than one). Per-port PoE comes from REST `/poe/ports` for whichever ports the device lists.
+* **ifIndex.** Read from IF-MIB. If a port is first seen over REST only, the AOS-Switch convention (A1 = 1,
+  B1 = 25, ...) is assumed until SNMP supplies the real value.
+* **Not covered.** VSF/backplane stacking, chassis redundancy (dual management modules), module inventory and
+  hot-swap events, power-supply and fan status, and per-module PoE budgets. Firmware other than 16.11 uses the 16.11
+  registry; each REST resource is still probed per switch.
+
+None of these models has been validated on hardware. The validation procedure in
+[HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) applies to each model separately.
 
 ## Items with known uncertainty on real hardware
 

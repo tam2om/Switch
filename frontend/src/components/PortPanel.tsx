@@ -66,8 +66,32 @@ function PortBox({ p, selected, onClick }: { p: Port; selected: boolean; onClick
   );
 }
 
+const SLOT_PORT = /^([A-L])(\d{1,2})$/;
+
+/** Splits ports into module slots for a 5400R zl2 chassis (A1..L24); fixed-port switches have no slots. */
+export function groupBySlot(ports: Port[]): { slot: string | null; ports: Port[] }[] {
+  const slots = new Map<string, Port[]>();
+  const fixed: Port[] = [];
+  for (const p of ports) {
+    const m = SLOT_PORT.exec(p.name);
+    if (m) {
+      if (!slots.has(m[1])) slots.set(m[1], []);
+      slots.get(m[1])!.push(p);
+    } else {
+      fixed.push(p);
+    }
+  }
+  const num = (p: Port) => Number(SLOT_PORT.exec(p.name)?.[2] ?? 0);
+  const out: { slot: string | null; ports: Port[] }[] = [...slots.keys()]
+    .sort()
+    .map((slot) => ({ slot, ports: slots.get(slot)!.sort((a, b) => num(a) - num(b)) }));
+  if (fixed.length) out.unshift({ slot: null, ports: fixed.sort((a, b) => a.if_index - b.if_index) });
+  return out;
+}
+
 /**
- * Front-panel view of an Aruba 2540: odd ports on the top row, even ports below, SFP+ uplinks to the right.
+ * Front-panel view. Fixed-port switches (2540, 2930F): odd ports on the top row, even ports below, SFP/SFP+ uplinks
+ * to the right. Modular chassis (5400R zl2): one block per module slot, labelled with its letter.
  * Click ports to select them for a change.
  */
 export function PortPanel({
@@ -79,27 +103,36 @@ export function PortPanel({
   selected?: Set<string>;
   onToggle?: (name: string) => void;
 }) {
-  const copper = ports.filter((p) => !/SFP/i.test(p.port_type)).sort((a, b) => a.if_index - b.if_index);
-  const sfp = ports.filter((p) => /SFP/i.test(p.port_type)).sort((a, b) => a.if_index - b.if_index);
-  const top = copper.filter((_, i) => i % 2 === 0);
-  const bottom = copper.filter((_, i) => i % 2 === 1);
-  const sfpTop = sfp.filter((_, i) => i % 2 === 0);
-  const sfpBottom = sfp.filter((_, i) => i % 2 === 1);
   const box = (p: Port) => <PortBox key={p.id} p={p} selected={!!selected?.has(p.name)} onClick={onToggle ? () => onToggle(p.name) : undefined} />;
+  const rows = (list: Port[]) => (
+    <>
+      <div className="flex gap-1.5">{list.filter((_, i) => i % 2 === 0).map(box)}</div>
+      <div className="flex gap-1.5">{list.filter((_, i) => i % 2 === 1).map(box)}</div>
+    </>
+  );
+  const groups = groupBySlot(ports);
   return (
     <div>
       <div className="overflow-x-auto">
-        <div className="inline-flex gap-6 rounded-lg border border-line bg-panel-2 p-3">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex gap-1.5">{top.map(box)}</div>
-            <div className="flex gap-1.5">{bottom.map(box)}</div>
-          </div>
-          {sfp.length > 0 && (
-            <div className="flex flex-col gap-1.5 border-l border-line pl-6">
-              <div className="flex gap-1.5">{sfpTop.map(box)}</div>
-              <div className="flex gap-1.5">{sfpBottom.map(box)}</div>
-            </div>
-          )}
+        <div className="inline-flex flex-col gap-3">
+          {groups.map(({ slot, ports: list }) => {
+            const copper = list.filter((p) => !/SFP/i.test(p.port_type));
+            const sfp = list.filter((p) => /SFP/i.test(p.port_type));
+            return (
+              <div key={slot ?? "fixed"} className="inline-flex gap-6 rounded-lg border border-line bg-panel-2 p-3">
+                {slot && (
+                  <div className="flex w-14 flex-col justify-center text-xs text-muted">
+                    <span>Slot</span>
+                    <span className="text-lg font-semibold text-fg">{slot}</span>
+                  </div>
+                )}
+                {copper.length > 0 && <div className="flex flex-col gap-1.5">{rows(copper)}</div>}
+                {sfp.length > 0 && (
+                  <div className={cx("flex flex-col gap-1.5", copper.length > 0 && "border-l border-line pl-6")}>{rows(sfp)}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted">

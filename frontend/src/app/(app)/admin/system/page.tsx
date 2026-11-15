@@ -162,7 +162,7 @@ function SimulatorTab() {
   return (
     <div className="space-y-4">
       <Notice tone="sim">
-        The simulator generates fake Aruba 2540 switches for testing and demonstrations. Simulated switches are always labelled SIMULATED and use the reserved
+        The simulator generates fake AOS-Switch switches (Aruba 2540; fleets of 10 or more also include one 5406R zl2 chassis and one 2930F-8G) for testing and demonstrations. Simulated switches are always labelled SIMULATED and use the reserved
         198.18.0.0/15 test range. Disable it in production.
       </Notice>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
