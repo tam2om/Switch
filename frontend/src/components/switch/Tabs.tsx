@@ -1,5 +1,6 @@
 "use client";
 
+import { HardwareBadge } from "@/components/HardwareBadge";
 import { CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -30,7 +31,7 @@ export function OverviewTab({ sw }: { sw: SwitchDetail }) {
           items={[
             ["Hostname", sw.hostname],
             ["Management IP", <span key="ip" className="font-mono">{sw.mgmt_ip}</span>],
-            ["Model", <>{sw.model_name || sw.product_number || "–"} {sw.product_number && !sw.model_verified && <Badge tone="warn" title="Not yet validated on physical hardware">hardware validation pending</Badge>}</>],
+            ["Model", <>{sw.model_name || sw.product_number || "–"} <HardwareBadge sw={sw} /></>],
             ["Product number", sw.product_number || "–"],
             ["Serial number", sw.serial_number || "–"],
             ["Base MAC", <span key="mac" className="font-mono">{sw.base_mac || "–"}</span>],

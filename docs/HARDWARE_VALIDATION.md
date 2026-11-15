@@ -24,7 +24,15 @@ the application manages production switches. Do not run it on a production switc
 
    It calls only read operations (probe, system, health, ports, counters, VLANs, VLAN membership, PoE ports and
    summary, MAC table, LLDP, running and startup configuration) with the monitoring credential and records each
-   result, error and duration. Exit code 0 means every check passed.
+   result, error and duration. Exit code 0 means every check passed. If no monitoring SSH account is set, the two
+   configuration reads use the configuration SSH account through a read-only session that refuses every
+   configuration command.
+
+   A report from a physical switch that identified itself is stored as evidence (table `hardware_validations`,
+   audit action `hardware.validate`) and recorded on the model for that firmware train. When every check passed,
+   switches of that model on that firmware train show "validated on hardware (read-only)" instead of
+   "hardware validation pending". Change operations are listed as verified on a model under Administration >
+   Inventory once a job on a physical switch of that model has applied the change and read it back.
 3. Check the report:
    * `simulated` is `false` and `valid_as_hardware_evidence` is `true` (the switch reported product and firmware).
    * `device.product` is `JL356A` and `device.firmware` is `YC.16.11.0018`.

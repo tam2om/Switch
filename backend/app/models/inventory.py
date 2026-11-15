@@ -28,6 +28,9 @@ class SwitchModel(Base):
     port_layout: Mapped[dict] = mapped_column(default=dict)
     # True only when the layout has been confirmed against a physical unit.
     hardware_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Latest read-only hardware harness result per firmware train, e.g.
+    # {"16.11": {"at", "switch_id", "hostname", "firmware", "passed", "failed", "validation_id"}}.
+    hardware_evidence: Mapped[dict] = mapped_column(default=dict, server_default="{}")
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
@@ -173,3 +176,19 @@ class SwitchNeighbor(Base):
 
 __all__ = ["Site", "SwitchModel", "SwitchGroup", "SwitchGroupMember", "Switch", "SwitchCredential", "SwitchPort",
            "SwitchNeighbor", "Index"]
+
+
+class HardwareValidation(Base):
+    """A stored report of the read-only hardware harness (python -m app.cli hw-validate) on a physical switch."""
+
+    __tablename__ = "hardware_validations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    switch_id: Mapped[int | None] = mapped_column(ForeignKey("switches.id", ondelete="SET NULL"), nullable=True,
+                                                  index=True)
+    hostname: Mapped[str] = mapped_column(String(128), default="")
+    product_number: Mapped[str] = mapped_column(String(32), index=True)
+    firmware: Mapped[str] = mapped_column(String(32))
+    passed: Mapped[int] = mapped_column(Integer)
+    failed: Mapped[int] = mapped_column(Integer)
+    report: Mapped[dict] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

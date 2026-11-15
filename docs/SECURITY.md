@@ -62,7 +62,10 @@ a privileged administrative system. The threats addressed are:
 * There is no free-form CLI. Configuration over SSH is generated from typed operations; every command is built from
   validated parameters and checked against an allow-list (`cli_commands.py`). Read commands are allow-listed too.
 * Separate monitoring (read-only) and configuration credentials per switch or as fleet defaults. Monitoring never
-  uses the configuration account.
+  makes changes with the configuration account. The one exception to keeping them apart: when no monitoring SSH
+  account is set, configuration reads (scheduled backups, the hardware harness) use the configuration SSH
+  account through a session that can only run the allow-listed show commands and refuses configuration commands
+  and file uploads.
 * Every change takes a pre-change backup, reads the result back to verify it, and stops a rollout after the
   configured number of failures. Canary-first and batched rollout are supported.
 

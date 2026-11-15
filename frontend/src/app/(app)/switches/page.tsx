@@ -12,6 +12,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { HardwareBadge } from "@/components/HardwareBadge";
 import { fmtPct, fmtWatts, relTime } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 import type { Page, Site, SwitchRow } from "@/lib/types";
@@ -278,7 +279,7 @@ export default function SwitchesPage() {
                         {mode === "pro" && (
                           <Td className="text-xs">
                             {s.product_number || "–"}
-                            {s.product_number && !s.model_verified && <div className="text-muted">hardware not validated</div>}
+                            <HardwareBadge sw={s} compact />
                           </Td>
                         )}
                         {mode === "pro" && <Td className="font-mono text-xs">{s.firmware || "–"}</Td>}

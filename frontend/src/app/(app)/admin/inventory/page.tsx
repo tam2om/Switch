@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { fmtDate } from "@/lib/format";
 import { Button, Card, Checkbox, ConfirmDialog, Empty, ErrorBox, Field, Input, Loadable, Modal, PageHeader, Table, Td, Th, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -16,6 +17,8 @@ interface SwitchModel {
   uplink_ports: number;
   poe_budget_w: number | null;
   hardware_verified: boolean;
+  hardware_evidence: Record<string, { at: string; hostname: string; firmware: string; passed: number; failed: number }>;
+  verified_operations: string[];
 }
 
 function SiteEditor({ site, onClose, onSaved }: { site: Site | "new"; onClose: () => void; onSaved: () => void }) {
@@ -177,7 +180,20 @@ export default function InventoryAdmin() {
                     <Td>{m.name}</Td>
                     <Td className="text-xs">{m.access_ports} access + {m.uplink_ports} SFP+</Td>
                     <Td>{m.poe_budget_w ? `${m.poe_budget_w} W` : "–"}</Td>
-                    <Td>{m.hardware_verified ? "verified" : <span className="text-xs text-warn">pending (no physical test yet)</span>}</Td>
+                    <Td className="text-xs">
+                      {m.hardware_verified ? (
+                        "verified"
+                      ) : Object.keys(m.hardware_evidence || {}).length === 0 ? (
+                        <span className="text-warn">pending (no physical test yet)</span>
+                      ) : (
+                        Object.entries(m.hardware_evidence).map(([train, ev]) => (
+                          <div key={train} className={ev.failed === 0 ? "text-ok" : "text-warn"}>
+                            {train}: read-only checks {ev.passed}/{ev.passed + ev.failed} passed on {ev.hostname} ({ev.firmware}), {fmtDate(ev.at)}
+                          </div>
+                        ))
+                      )}
+                      {m.verified_operations?.length > 0 && <div className="text-muted">Changes applied and verified on hardware: {m.verified_operations.join(", ")}</div>}
+                    </Td>
                   </tr>
                 ))}
               </tbody>

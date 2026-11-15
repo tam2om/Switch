@@ -16,14 +16,21 @@ class SimulatorDriver(AosSwitchDriver):
 
 
 def build(ip: str, *, rest: tuple[str, str] | None, snmp: tuple[str, str, str] | None,
-          ssh: tuple[str, str] | None, host_key_trusted: bool, probed: dict | None = None) -> SimulatorDriver:
+          ssh: tuple[str, str] | None, host_key_trusted: bool, probed: dict | None = None,
+          ssh_read_only: bool = False) -> SimulatorDriver:
+    from app.drivers.aruba.aos_switch.ssh_client import ReadOnlySshSession
+
+    def ssh_factory():  # type: ignore[no-untyped-def]
+        session = SimSshSession(ip, ssh[0], ssh[1], host_key_trusted)
+        return ReadOnlySshSession(session) if ssh_read_only else session
+
     ctx = DriverContext(
         host=ip,
         firmware=FIRMWARE,
         rest_factory=(lambda: RestClient(ip, rest[0], rest[1], transport=sim_rest.transport(ip), max_retries=0))
         if rest else None,
         snmp_factory=(lambda: SimSnmpTransport(ip, *snmp)) if snmp else None,
-        ssh_factory=(lambda: SimSshSession(ip, ssh[0], ssh[1], host_key_trusted)) if ssh else None,
+        ssh_factory=ssh_factory if ssh else None,
         probed=probed if probed is not None else {},
     )
     return SimulatorDriver(ctx)

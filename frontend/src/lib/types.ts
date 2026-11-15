@@ -49,6 +49,17 @@ export interface SwitchMetrics {
   poe_consumed_w: number | null;
 }
 
+export interface HardwareEvidence {
+  at: string;
+  switch_id: number;
+  hostname: string;
+  firmware: string;
+  passed: number;
+  failed: number;
+  validation_id: number;
+  read_checks_passed: boolean;
+}
+
 export interface CredentialProblem {
   code: string;
   message: string;
@@ -69,6 +80,8 @@ export interface SwitchRow {
   product_number: string | null;
   model_name: string | null;
   model_verified: boolean;
+  /** Read-only hardware harness result for this model on this switch's firmware train (physical switches only). */
+  hardware_evidence: HardwareEvidence | null;
   serial_number: string | null;
   base_mac: string | null;
   firmware: string | null;

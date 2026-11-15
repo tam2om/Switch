@@ -11,7 +11,16 @@ from app.api.deps import require
 from app.core.errors import conflict, not_found
 from app.core.permissions import P
 from app.db.session import get_db
-from app.models import Site, Switch, SwitchGroup, SwitchGroupMember, SwitchModel, User
+from app.models import (
+    ChangeJob,
+    ChangeJobResult,
+    Site,
+    Switch,
+    SwitchGroup,
+    SwitchGroupMember,
+    SwitchModel,
+    User,
+)
 from app.services import audit
 
 router = APIRouter(tags=["inventory"])
@@ -128,7 +137,19 @@ def delete_group(group_id: int, user: User = Depends(require(P.SWITCH_MANAGE)), 
 
 @router.get("/models")
 def list_models(user: User = Depends(require(P.SWITCH_VIEW)), db: Session = Depends(get_db)) -> list[dict]:
+    # Change operations count as verified on a model when a job on a physical switch of that model applied the
+    # change and read it back successfully.
+    verified_ops: dict[str, set[str]] = {}
+    for pn, op in db.execute(
+            select(Switch.product_number, ChangeJob.operation)
+            .join(ChangeJobResult, ChangeJobResult.job_id == ChangeJob.id)
+            .join(Switch, Switch.id == ChangeJobResult.switch_id)
+            .where(ChangeJobResult.status == "success", Switch.is_simulated.is_(False)).distinct()).all():
+        if pn:
+            verified_ops.setdefault(pn, set()).add(op)
     return [{"id": m.id, "product_number": m.product_number, "name": m.name, "family": m.family,
              "access_ports": m.access_ports, "uplink_ports": m.uplink_ports, "poe_budget_w": m.poe_budget_w,
-             "hardware_verified": m.hardware_verified, "port_layout": m.port_layout}
+             "hardware_verified": m.hardware_verified, "port_layout": m.port_layout,
+             "hardware_evidence": m.hardware_evidence or {},
+             "verified_operations": sorted(verified_ops.get(m.product_number, set()))}
             for m in db.execute(select(SwitchModel).order_by(SwitchModel.product_number)).scalars()]

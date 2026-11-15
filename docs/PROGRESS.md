@@ -25,7 +25,7 @@ and [FINAL_REPORT.md](FINAL_REPORT.md).
 
 ## Tests
 
-* Passing: backend 137, frontend unit 28, end-to-end 10 (dev stack and Compose stack), backup/restore round trip.
+* Passing: backend 145, frontend unit 28, end-to-end 10 (dev stack and Compose stack), backup/restore round trip.
 * Failing: none.
 
 ## Known issues

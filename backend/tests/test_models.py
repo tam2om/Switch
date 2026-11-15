@@ -146,3 +146,41 @@ def test_faceplate_label_is_app_only_audited_kept_across_polls_and_searchable(cl
         assert found == []
     # clearing the label
     assert client.put(url, json={"faceplate_label": ""}).json()["faceplate_label"] == ""
+
+
+def test_hardware_evidence_recorded_from_physical_report_and_shown(client, db, sim_switches):
+    from app.models import AuditLog, ChangeJob, ChangeJobResult, HardwareValidation, SwitchModel
+    from app.services import hwvalidate
+
+    ids = sim_switches(1)
+    polling.run_category("inventory", ids)
+    sw = db.get(Switch, ids[0])
+    sw.is_simulated, sw.driver = False, "aruba_aos_s"  # stand-in for a physical switch; the report is constructed
+    db.commit()
+    report = {"valid_as_hardware_evidence": True, "device": {"product": "JL356A", "firmware": "YC.16.11.0018"},
+              "summary": {"passed": 12, "failed": 0}, "checks": []}
+    row = hwvalidate.record_evidence(db, sw, report)
+    db.commit()
+    assert row is not None and db.query(HardwareValidation).count() == 1 and report["validation_id"] == row.id
+    ev = db.query(SwitchModel).filter_by(product_number="JL356A").one().hardware_evidence["16.11"]
+    assert ev["passed"] == 12 and ev["failed"] == 0 and ev["switch_id"] == sw.id
+    assert db.query(AuditLog).filter_by(action="hardware.validate").count() == 1
+    # a successful job on the physical switch counts as a verified operation for the model
+    job = ChangeJob(operation="port_description", title="t", params={}, status="completed", risk="low",
+                    requested_by_name="ops")
+    db.add(job)
+    db.flush()
+    db.add(ChangeJobResult(job_id=job.id, switch_id=sw.id, status="success"))
+    db.commit()
+    make_user(db, "viewer", "viewer4")
+    login(client, "viewer4")
+    out = client.get(f"/api/v1/switches/{sw.id}").json()
+    assert out["hardware_evidence"]["read_checks_passed"] is True and out["hardware_evidence"]["passed"] == 12
+    m = next(x for x in client.get("/api/v1/models").json() if x["product_number"] == "JL356A")
+    assert m["verified_operations"] == ["port_description"] and m["hardware_evidence"]["16.11"]["failed"] == 0
+    # another firmware train has no evidence
+    sw.firmware = "YC.16.10.0012"
+    db.commit()
+    assert client.get(f"/api/v1/switches/{sw.id}").json()["hardware_evidence"] is None
+    # a report that is not hardware evidence is never stored
+    assert hwvalidate.record_evidence(db, sw, {"valid_as_hardware_evidence": False}) is None

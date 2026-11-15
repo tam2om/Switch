@@ -415,3 +415,30 @@ def test_port_speed_modes_from_running_config():
 
     cfg = 'hostname "x"\ninterface 5\n   name "cam"\n   speed-duplex 100-full\n   exit\ninterface A7\n   disable\n   exit\nvlan 1\n   name "DEFAULT_VLAN"\n   exit\n'
     assert port_speed_modes(cfg) == {"5": "100-full", "A7": "auto"}
+
+
+def test_harness_on_simulator_stores_no_evidence(db, sim_switches):
+    from app.models import HardwareValidation, SwitchModel
+    from app.services import hwvalidate
+
+    hwvalidate.run_for_switch(db, sim_switches(1)[0])
+    assert db.query(HardwareValidation).count() == 0
+    assert db.query(SwitchModel).filter_by(product_number="JL356A").one().hardware_evidence == {}
+
+
+def test_monitoring_ssh_falls_back_to_config_account_read_only(db, sim_switches):
+    from app.models import Switch, SwitchCredential
+    from app.services.devices import driver_for
+
+    sid = sim_switches(1)[0]
+    db.query(SwitchCredential).filter_by(switch_id=sid, kind="ssh", purpose="monitor").delete()
+    db.commit()
+    sw = db.get(Switch, sid)
+    with driver_for(db, sw, "monitor") as d:
+        assert d.get_running_config().source in ("rest-cli", "ssh")
+        assert "hostname" in d.ssh.show("show running-config")
+        with pytest.raises(DriverError) as e:
+            d.ssh.configure(["interface 4", "disable"])
+        assert e.value.code == "not_allowed"
+    with driver_for(db, sw, "config") as d:  # the change path keeps full access
+        assert d.ssh.configure(["interface 4", "name \"x\""]) is not None

@@ -18,6 +18,7 @@ from app.models.identity import (
     UserSession,
 )
 from app.models.inventory import (
+    HardwareValidation,
     Site,
     Switch,
     SwitchCredential,
@@ -43,6 +44,7 @@ from app.models.network import (
 from app.models.system import Alert, AlertRule, IntegrationSetting, Notification, PollingJob, SystemSetting
 
 __all__ = [
+    "HardwareValidation",
     "Alert", "AlertRule", "AuditLog", "ChangeApproval", "ChangeJob", "ChangeJobResult", "ConfigBackup", "ConfigDiff",
     "ConfigurationTemplate", "IntegrationSetting", "LoginAttempt", "MacLearnedEntry", "Notification", "OuiVendor",
     "PasswordResetToken", "Permission", "PoeConfiguration", "PoeMetric", "PollingJob", "PortConfiguration",

@@ -15,12 +15,14 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.base import utcnow
-from app.drivers.aruba.aos_switch.capabilities import SUPPORTED_PRODUCTS, capabilities_for
+from app.drivers.aruba.aos_switch.capabilities import SUPPORTED_PRODUCTS, capabilities_for, firmware_train
 from app.drivers.base import DriverError, SwitchDriver
-from app.models import Switch
+from app.models import HardwareValidation, Switch, SwitchModel
+from app.services import audit
 
 # Read checks: (name, capability keys it exercises, call, summary of the result)
 _CHECKS: list[tuple[str, list[str], Callable[[SwitchDriver], Any], Callable[[Any], dict]]] = [
@@ -96,7 +98,32 @@ def run(driver: SwitchDriver, sw: Switch) -> dict:
     return report
 
 
-def run_for_switch(db: Session, switch_id: int) -> dict:
+def record_evidence(db: Session, sw: Switch, report: dict) -> HardwareValidation | None:
+    """Store a report from a physical switch and update the model's evidence for that firmware train.
+    Simulated switches and reports where the device did not identify itself are never stored as evidence."""
+    if not report.get("valid_as_hardware_evidence"):
+        return None
+    product, firmware = report["device"]["product"], report["device"]["firmware"]
+    row = HardwareValidation(switch_id=sw.id, hostname=sw.hostname, product_number=product, firmware=firmware,
+                             passed=report["summary"]["passed"], failed=report["summary"]["failed"], report=report)
+    db.add(row)
+    db.flush()
+    report["validation_id"] = row.id
+    model = db.execute(select(SwitchModel).where(SwitchModel.product_number == product)).scalar_one_or_none()
+    if model is not None:
+        evidence = dict(model.hardware_evidence or {})
+        train = firmware_train(firmware) or firmware
+        evidence[train] = {"at": row.created_at.isoformat(), "switch_id": sw.id, "hostname": sw.hostname,
+                           "firmware": firmware, "passed": row.passed, "failed": row.failed, "validation_id": row.id}
+        model.hardware_evidence = evidence
+    audit.record(db, action="hardware.validate", category="operational", actor_name="cli", target_type="switch",
+                 target_id=sw.id, switch_id=sw.id, result="success" if row.failed == 0 else "failure",
+                 details={"product": product, "firmware": firmware, "passed": row.passed, "failed": row.failed,
+                          "validation_id": row.id})
+    return row
+
+
+def run_for_switch(db: Session, switch_id: int, *, record: bool = True) -> dict:
     from app.services.devices import driver_for
 
     sw = db.get(Switch, switch_id)
@@ -104,6 +131,10 @@ def run_for_switch(db: Session, switch_id: int) -> dict:
         raise ValueError(f"switch {switch_id} not found")
     driver = driver_for(db, sw, "monitor")
     try:
-        return run(driver, sw)
+        report = run(driver, sw)
     finally:
         driver.close()
+    if record:
+        record_evidence(db, sw, report)
+        db.commit()
+    return report

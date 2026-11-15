@@ -35,6 +35,26 @@ class SshSession(Protocol):
     def close(self) -> None: ...
 
 
+class ReadOnlySshSession:
+    """Wraps a session so that only allow-listed show commands can run. Used when the configuration SSH account
+    has to stand in for a missing monitoring SSH account (configuration backups, the hardware harness)."""
+
+    def __init__(self, inner: SshSession):
+        self._inner = inner
+
+    def show(self, command: str) -> str:
+        return self._inner.show(command)
+
+    def configure(self, lines: list[str]) -> str:
+        raise DriverError("not_allowed", "Read-only SSH session: configuration commands are refused", protocol="ssh")
+
+    def put_file(self, remote_path: str, content: str) -> None:
+        raise DriverError("not_allowed", "Read-only SSH session: file uploads are refused", protocol="ssh")
+
+    def close(self) -> None:
+        self._inner.close()
+
+
 def fingerprint(host_key_b64: str) -> str:
     raw = base64.b64decode(host_key_b64.split()[-1] if " " in host_key_b64 else host_key_b64)
     return "SHA256:" + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")

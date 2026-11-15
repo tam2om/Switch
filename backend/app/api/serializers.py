@@ -12,6 +12,18 @@ def _age(ts: datetime | None) -> float | None:
     return (utcnow() - ts).total_seconds() if ts else None
 
 
+def hardware_evidence_for(sw: Switch) -> dict | None:
+    """Read-only harness evidence for this switch's model on its firmware train, if any."""
+    from app.drivers.aruba.aos_switch.capabilities import firmware_train
+
+    if sw.model is None or sw.is_simulated:
+        return None
+    ev = (sw.model.hardware_evidence or {}).get(firmware_train(sw.firmware) or "")
+    if not ev:
+        return None
+    return {**ev, "read_checks_passed": ev.get("failed") == 0}
+
+
 def switch_out(sw: Switch, stale_after: int = 180, groups: list[dict] | None = None) -> dict:
     age = _age(sw.metrics_at)
     poll_age = _age(sw.last_success_at)
@@ -21,6 +33,7 @@ def switch_out(sw: Switch, stale_after: int = 180, groups: list[dict] | None = N
         "credential_problems": (sw.capabilities or {}).get("credential_problems") or {}, "is_simulated": sw.is_simulated, "driver": sw.driver,
         "product_number": sw.product_number, "model_name": sw.model_name or (sw.model.name if sw.model else None),
         "model_verified": bool(sw.model and sw.model.hardware_verified),
+        "hardware_evidence": hardware_evidence_for(sw),
         "serial_number": sw.serial_number, "base_mac": sw.base_mac, "firmware": sw.firmware,
         "rom_version": sw.rom_version, "site_id": sw.site_id, "site": sw.site.name if sw.site else None,
         "location": sw.location, "building": sw.building, "floor": sw.floor, "department": sw.department,
