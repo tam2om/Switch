@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CREDIT_TEXT } from "@/components/Credit";
 import { Badge, Button, Card, ConfirmDialog, Field, Input, KV, Loadable, Notice, PageHeader, Select, StatusBadge, Table, Tabs, Td, Th, useToast } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -65,6 +66,7 @@ function HealthTab() {
                 ["Simulator", h.simulator_enabled ? "enabled" : "disabled"],
                 ["Server time", fmtDate(h.time)],
                 ["Switches", Object.entries(h.switches).map(([k, v]) => `${v} ${k}`).join(", ") || "none"],
+                ["About", CREDIT_TEXT],
               ]}
             />
             <Table className="mt-3">

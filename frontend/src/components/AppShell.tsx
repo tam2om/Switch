@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/hooks";
 import { NAV } from "@/lib/nav";
 import type { Page } from "@/lib/types";
+import { Credit, Logo } from "./Credit";
 import { Badge, cx, Spinner, StatusBadge } from "./ui";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -187,7 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className={cx("fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-line bg-panel transition-transform lg:translate-x-0", navOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex h-14 items-center justify-between border-b border-line px-4">
           <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="inline-block h-6 w-6 rounded bg-accent" aria-hidden />
+            <Logo size={24} />
             Network Manager
           </Link>
           <button type="button" className="lg:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu">
@@ -257,6 +258,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             children
           )}
         </main>
+        <Credit className="border-t border-line px-4 py-3" />
       </div>
     </div>
   );

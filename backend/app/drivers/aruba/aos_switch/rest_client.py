@@ -42,6 +42,13 @@ class RestClient:
             r = self._client.get("/rest/version")
         except httpx.HTTPError as exc:
             raise self._transport_error(exc) from exc
+        if r.status_code in (400, 401, 403) and "login" in r.text.lower():
+            # Some 16.11 builds answer /rest/version with "Please login to access the resource" before a session
+            # exists. REST is present: use the newest version this driver supports, and let login confirm it.
+            log.debug("GET /rest/version requires a session on %s; using v%s", self._client.base_url.host,
+                      MAX_REST_VERSION)
+            self.api_version = f"v{MAX_REST_VERSION}"
+            return self.api_version
         if r.status_code != 200:
             raise DriverError("rest_unavailable", f"GET /rest/version returned HTTP {r.status_code}", protocol="rest")
         versions = []

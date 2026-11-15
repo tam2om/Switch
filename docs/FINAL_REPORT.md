@@ -11,9 +11,9 @@ It must not manage production switches until the hardware validation procedure h
 
 | Suite | Result |
 |---|---|
-| Backend (pytest, PostgreSQL + TimescaleDB + Redis, simulator) | 145 passed |
+| Backend (pytest, PostgreSQL + TimescaleDB + Redis, simulator) | 148 passed |
 | Backend lint (ruff) | clean |
-| Frontend unit tests (Vitest) | 28 passed |
+| Frontend unit tests (Vitest) | 31 passed |
 | Frontend type check and production build | clean, 25 routes |
 | End-to-end (Playwright, 10 scenarios) on the dev stack | 10 passed |
 | End-to-end on the Docker Compose stack through Nginx/TLS | 10 passed (5 re-run after the login rate limit, by design, throttled the suite's rapid sign-ins) |

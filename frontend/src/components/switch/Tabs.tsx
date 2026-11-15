@@ -63,7 +63,7 @@ export function OverviewTab({ sw }: { sw: SwitchDetail }) {
           </div>
           <KV
             items={[
-              ["Temperature", m?.temperature_c === null || m?.temperature_c === undefined ? "not reported" : `${m.temperature_c} °C`],
+              ["Temperature", m?.temperature_c === null || m?.temperature_c === undefined ? "n/a" : `${m.temperature_c} °C`],
               ["Uptime", fmtUptime(m?.uptime_seconds)],
               ["Ports up", `${sw.ports_up} / ${sw.ports_total}`],
               ["VLANs", sw.vlan_count],

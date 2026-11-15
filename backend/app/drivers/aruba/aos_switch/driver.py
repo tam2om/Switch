@@ -179,7 +179,14 @@ class AosSwitchDriver(SwitchDriver):
         return info
 
     def get_health(self, include_temperature: bool = True) -> HealthInfo:
-        return system.snmp_health(self.snmp, include_temperature=include_temperature)
+        h = system.snmp_health(self.snmp, include_temperature=include_temperature)
+        if include_temperature and h.temperature_c is None and self.ctx.ssh_factory:
+            # Not all models expose a usable ENTITY-SENSOR reading; the CLI reports the air temperature.
+            try:
+                h.temperature_c = system.parse_cli_temperature(self.ssh.show("show system temperature"))
+            except DriverError as exc:
+                log.info("temperature over SSH unavailable on %s: %s", self.ctx.host, exc.code)
+        return h
 
     def get_port_status(self) -> list[PortInfo]:
         if self.ctx.snmp_factory:

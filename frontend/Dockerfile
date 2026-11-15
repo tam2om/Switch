@@ -25,6 +25,7 @@ ENV NODE_ENV=production \
 RUN addgroup -S -g 10001 anm && adduser -S -u 10001 -G anm anm
 COPY --from=build --chown=anm:anm /app/.next/standalone ./
 COPY --from=build --chown=anm:anm /app/.next/static ./.next/static
+COPY --from=build --chown=anm:anm /app/public ./public
 USER anm
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1

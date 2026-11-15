@@ -79,17 +79,58 @@ def snmp_health(snmp: o.SnmpClient, include_temperature: bool = True) -> HealthI
             if f is not None:
                 h.mem_free_bytes = int(f)
                 h.mem_pct = round(100.0 * (int(t) - int(f)) / int(t), 1)
-    # Temperature: ENTITY-SENSOR-MIB, sensor type 8 = celsius. Absent sensors -> None (shown as unavailable).
-    types = snmp.table(o.ENT_SENSOR_TYPE) if include_temperature else {}
-    if types:
-        values = snmp.table(o.ENT_SENSOR_VALUE)
-        scales = snmp.table(o.ENT_SENSOR_SCALE)
-        temps = []
-        for idx, t in types.items():
-            if int(t) == 8 and values.get(idx) is not None:
-                scale = int(scales.get(idx, 9))  # 9 = units
-                factor = 10 ** ((scale - 9) * 3)
-                temps.append(float(values[idx]) * factor)
-        if temps:
-            h.temperature_c = round(max(temps), 1)
+    if include_temperature:
+        h.temperature_c = snmp_temperature(snmp)
     return h
+
+
+def snmp_temperature(snmp: o.SnmpClient) -> float | None:
+    """Hottest celsius sensor from ENTITY-SENSOR-MIB, or None when the switch reports no usable one.
+
+    A sensor counts only when its oper status is ok(1) (when reported) and its value is not 0: some AOS-Switch
+    models list a celsius sensor that always reads 0, which must be shown as "not reported", not as 0 °C."""
+    types = snmp.table(o.ENT_SENSOR_TYPE)
+    if not types:
+        return None
+    values = snmp.table(o.ENT_SENSOR_VALUE)
+    scales = snmp.table(o.ENT_SENSOR_SCALE)
+    precisions = snmp.table(o.ENT_SENSOR_PRECISION)
+    status = snmp.table(o.ENT_SENSOR_OPER_STATUS)
+    temps = []
+    for idx, t in types.items():
+        try:
+            if int(t) != 8 or values.get(idx) is None:
+                continue
+            if status.get(idx) is not None and int(status[idx]) != 1:
+                continue
+            raw = int(values[idx])
+            if raw == 0:
+                continue
+            factor = 10 ** ((int(scales.get(idx, 9)) - 9) * 3)  # 9 = units
+            precision = int(precisions.get(idx, 0) or 0)
+            temps.append(raw * factor / (10 ** precision if 0 < precision <= 9 else 1))
+        except (TypeError, ValueError):
+            continue
+    plausible = [t for t in temps if -40 <= t <= 150]
+    return round(max(plausible), 1) if plausible else None
+
+
+_CLI_TEMP = re.compile(r"(?<![\w.])(-?\d{1,3}(?:\.\d)?)\s?C\b")
+
+
+def parse_cli_temperature(text: str) -> float | None:
+    """Current temperature from `show system temperature`: the first NNC value on each sensor row (after the
+    dashed header line, or a "Current:" line). Max/min/threshold columns follow and are ignored."""
+    temps: list[float] = []
+    in_rows = False
+    for line in (text or "").splitlines():
+        if re.match(r"^\s*-{3,}", line):
+            in_rows = True
+            continue
+        if in_rows or "current" in line.lower():
+            m = _CLI_TEMP.search(line.split(":", 1)[1] if "current" in line.lower() and ":" in line else line)
+            if m:
+                v = float(m.group(1))
+                if v != 0 and -40 <= v <= 150:
+                    temps.append(v)
+    return round(max(temps), 1) if temps else None

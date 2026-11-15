@@ -40,7 +40,7 @@ Generated from `backend/app/drivers/aruba/aos_switch/capabilities.py`
 | `snmp.system` | SNMP | SNMPv2-MIB::system (1.3.6.1.2.1.1) |  |  | documented |  |
 | `health.cpu` | SNMP | STATISTICS-MIB::hpSwitchCpuStat 1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0 |  |  | documented |  |
 | `health.memory` | SNMP | NETSWITCH-MIB::hpLocalMemTotalBytes/FreeBytes 1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1 |  |  | documented |  |
-| `health.temperature` | SNMP | ENTITY-SENSOR-MIB::entPhySensorValue (type celsius) |  |  | documented | 2540 may not expose temperature sensors via ENTITY-SENSOR-MIB; shown as unavailable if absent |
+| `health.temperature` | SNMP | ENTITY-SENSOR-MIB::entPhySensorValue (type celsius) |  |  | documented | Sensors reading 0 or not ok are ignored; falls back to `show system temperature`; shown as n/a otherwise |
 | `ports.read` | REST | GET /ports |  | `snmp.ifmib` | documented |  |
 | `snmp.ifmib` | SNMP | IF-MIB ifTable/ifXTable |  |  | documented |  |
 | `ports.counters` | SNMP | IF-MIB ifHCInOctets/ifHCOutOctets/ifInErrors/... |  |  | documented |  |
@@ -141,7 +141,12 @@ parsing only. It is not a full hardware validation.
 
 ## Items with known uncertainty on real hardware
 
-* Temperature: the 2540 may not expose temperature through ENTITY-SENSOR-MIB; the UI then shows "unavailable".
+* Temperature: checked on a JL356A (YC.16.11.0018). Its only celsius sensor in ENTITY-SENSOR-MIB ("Chassis Sensor")
+  always reads 0 with status ok, and `show system temperature` is not a valid command on that firmware, so the switch
+  has no temperature reading and the UI shows "n/a". A sensor reading 0, or with a status other than ok, is never
+  shown as a temperature.
+* REST: on YC.16.11.0018 `GET /rest/version` answers HTTP 400 "Please login to access the resource" before a session
+  exists. The driver treats that as REST present and logs in with v7.
 * REST `POST /cli` availability and output format on YC.16.11.0018 must be confirmed; SSH is the fallback.
 * Concurrent REST session limits per switch: the client always logs out, but the limit must be checked under load.
 * Exact CLI syntax of the security operations must be checked against the 16.11 CLI on a lab switch before use.

@@ -185,7 +185,7 @@ export default function Dashboard() {
                             <div className="tabular text-xs">{fmtPct(h.mem_pct)}</div>
                             <Meter value={h.mem_pct} />
                           </Td>
-                          {mode === "pro" && <Td className="tabular">{h.temperature_c === null ? "–" : `${h.temperature_c} °C`}</Td>}
+                          {mode === "pro" && <Td className="tabular">{h.temperature_c === null ? "n/a" : `${h.temperature_c} °C`}</Td>}
                           {mode === "pro" && <Td className="tabular">{fmtUptime(h.uptime_seconds)}</Td>}
                         </tr>
                       ))}

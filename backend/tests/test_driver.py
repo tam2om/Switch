@@ -442,3 +442,70 @@ def test_monitoring_ssh_falls_back_to_config_account_read_only(db, sim_switches)
         assert e.value.code == "not_allowed"
     with driver_for(db, sw, "config") as d:  # the change path keeps full access
         assert d.ssh.configure(["interface 4", "name \"x\""]) is not None
+
+
+def test_temperature_ignores_zero_or_failed_sensors_and_falls_back_to_cli():
+    from app.drivers.aruba.aos_switch import snmp_client as o
+    from app.drivers.aruba.aos_switch import system
+
+    def fake(tables):
+        class F:
+            def table(self, oid):
+                return tables.get(oid, {})
+
+        return F()
+
+    # the 2540 reports a celsius sensor that reads 0: not a temperature
+    zero = fake({o.ENT_SENSOR_TYPE: {"1": 8}, o.ENT_SENSOR_SCALE: {"1": 9}, o.ENT_SENSOR_VALUE: {"1": 0}})
+    assert system.snmp_temperature(zero) is None
+    failed = fake({o.ENT_SENSOR_TYPE: {"1": 8, "2": 8}, o.ENT_SENSOR_VALUE: {"1": 61, "2": 33},
+                   o.ENT_SENSOR_OPER_STATUS: {"1": 2, "2": 1}})
+    assert system.snmp_temperature(failed) == 33.0
+    tenths = fake({o.ENT_SENSOR_TYPE: {"1": 8}, o.ENT_SENSOR_VALUE: {"1": 345}, o.ENT_SENSOR_PRECISION: {"1": 1}})
+    assert system.snmp_temperature(tenths) == 34.5
+    assert system.snmp_temperature(fake({})) is None
+
+    cli = """
+ System Air Temperatures
+ Temp   Current  Max     Min
+ Sensor  Temp    Temp    Temp   Threshold  OverTemp
+ ------  ------- ------  -----  ---------  --------
+ Chassis    31C     41C     22C    55C        NO
+"""
+    assert system.parse_cli_temperature(cli) == 31.0
+    assert system.parse_cli_temperature(" System Temperature\n  Current: 36.4C\n") == 36.4
+    assert system.parse_cli_temperature("Invalid input: temperature") is None
+    assert system.parse_cli_temperature("") is None
+
+
+def test_real_2540_reports_no_usable_temperature():
+    """Recorded on a JL356A (YC.16.11.0018): the one celsius sensor reads 0 with status ok, and the CLI has no
+    `show system temperature`. The switch has no temperature reading, so none is reported (not 0 °C)."""
+    from app.drivers.aruba.aos_switch import system
+
+    assert system.snmp_temperature(_recorded_walk("snmp_sensors_jl356a_yc_16_11_0018.txt")) is None
+    assert system.parse_cli_temperature("Invalid input: temperature") is None
+
+
+def test_rest_version_that_requires_login_means_rest_present():
+    """Seen on a JL356A (YC.16.11.0018): GET /rest/version without a session returns HTTP 400 "Please login"."""
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.path)
+        if req.url.path == "/rest/version":
+            return httpx.Response(400, text="Please login to access the resource")
+        if req.url.path.endswith("/login-sessions"):
+            return httpx.Response(201, json={"cookie": "sessionId=s1"})
+        return httpx.Response(200, json={"ok": True})
+
+    rc = RestClient("10.0.0.1", "u", "p", transport=httpx.MockTransport(handler))
+    assert rc.get("/system") == {"ok": True}
+    assert "/rest/v7/login-sessions" in seen
+
+    def plain_400(req):
+        return httpx.Response(400, text="Bad request")
+
+    with pytest.raises(DriverError) as e:
+        RestClient("10.0.0.1", "u", "p", transport=httpx.MockTransport(plain_400)).login()
+    assert e.value.code == "rest_unavailable"
