@@ -64,14 +64,17 @@ class SimSnmpTransport:
             t[f"{o.DOT3_DUPLEX}.{i}"] = (2 if p.config_mode.endswith("half") else 3) if up else 1
             t[f"{o.DOT1D_BASEPORT_IFINDEX}.{i}"] = i
         # VLAN interfaces (ifType 136) must be filtered out by the parser.
+        # Like AOS-Switch, the FDB index (dot1qFdbId) is an internal counter, not the VLAN ID.
+        fdb_ids = {vid: k for k, vid in enumerate(sorted(sw.vlans), start=1)}
         for vid, vname in sw.vlans.items():
             t[f"{o.IF_NAME}.{1000 + vid}"] = f"VLAN{vid}"
             t[f"{o.IF_TYPE}.{1000 + vid}"] = 136
             t[f"{o.DOT1Q_VLAN_NAME}.{vid}"] = vname
+            t[f"{o.DOT1Q_VLAN_FDB_ID}.0.{vid}"] = fdb_ids[vid]
         for m in sw.macs:
-            if sw.oper_up(sw.ports[m["port"]]):
+            if sw.oper_up(sw.ports[m["port"]]) and m["vlan"] in fdb_ids:
                 octs = ".".join(str(int(x, 16)) for x in m["mac"].split(":"))
-                t[f"{o.DOT1Q_FDB_PORT}.{m['vlan']}.{octs}"] = int(m["port"])
+                t[f"{o.DOT1Q_FDB_PORT}.{fdb_ids[m['vlan']]}.{octs}"] = int(m["port"])
         for k, n in enumerate(sw.lldp, start=1):
             if sw.oper_up(sw.ports[n["local_port"]]):
                 idx = f"0.{n['local_port']}.{k}"

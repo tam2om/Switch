@@ -313,11 +313,15 @@ def poll_mac(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
         seen.add(key)
         row = existing.get(key)
         if row is None:
+            # The same MAC already known on this switch under another VLAN (it moved VLAN, or an older reading
+            # recorded a wrong VLAN) keeps its first-seen time and is not reported as a new device.
+            known_here = [r for (mac, _v), r in existing.items() if mac == e.mac]
+            first_seen = min((r.first_seen for r in known_here), default=now)
             row = MacLearnedEntry(switch_id=sw.id, mac=e.mac, vlan_id=e.vlan_id, port_name=e.port,
-                                  vendor=_vendor(db, e.mac, cache), first_seen=now, last_seen=now, active=True)
+                                  vendor=_vendor(db, e.mac, cache), first_seen=first_seen, last_seen=now, active=True)
             db.add(row)
             existing[key] = row
-            if not first_poll and e.port not in uplinks:
+            if not first_poll and not known_here and e.port not in uplinks:
                 new += 1
                 # Fleet-wide: a MAC is "new" only if never seen on any switch before.
                 seen_elsewhere = db.execute(select(MacLearnedEntry.id).where(

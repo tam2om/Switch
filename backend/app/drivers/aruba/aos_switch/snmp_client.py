@@ -53,6 +53,9 @@ PETH_MAIN_CONSUMPTION = "1.3.6.1.2.1.105.1.3.1.1.4"
 DOT1D_BASEPORT_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"
 DOT1Q_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"
 DOT1Q_VLAN_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
+# dot1qVlanFdbId: index dot1qVlanTimeMark.dot1qVlanIndex (the VLAN ID), value dot1qFdbId. The FDB tables are
+# indexed by dot1qFdbId, which on AOS-Switch is an internal counter (1..n), NOT the VLAN ID.
+DOT1Q_VLAN_FDB_ID = "1.3.6.1.2.1.17.7.1.4.2.1.3"
 
 LLDP_REM_CHASSIS_ID = "1.0.8802.1.1.2.1.4.1.1.5"
 LLDP_REM_PORT_ID = "1.0.8802.1.1.2.1.4.1.1.7"

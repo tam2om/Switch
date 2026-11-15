@@ -116,7 +116,11 @@ def test_fallback_to_snmp_and_ssh_when_rest_resource_missing():
     st.get_or_create(IP, 1, 1)
     st.mutate(IP, lambda s: setattr(s, "unsupported_rest", ["/mac-table", "/lldp", "/vlans", "/cli", "/ports"]))
     d = build()
-    assert d.get_mac_table()  # SNMP Q-BRIDGE
+    snmp_macs = d.get_mac_table()  # SNMP Q-BRIDGE
+    # FDB indexes are internal counters on AOS-Switch; the driver must report real VLAN IDs (10, 20, 30, 99...).
+    rest_macs = build_rest_macs()
+    assert snmp_macs and {(m.mac, m.vlan_id) for m in snmp_macs} == {(m.mac, m.vlan_id) for m in rest_macs}
+    assert {m.vlan_id for m in snmp_macs} <= {1, 10, 20, 30, 99} and any(m.vlan_id >= 10 for m in snmp_macs)
     assert d.get_lldp_neighbors()  # SNMP LLDP-MIB
     assert {v.vlan_id for v in d.get_vlans()} == {1, 10, 20, 30, 99}
     assert d.get_running_config().source == "ssh"
@@ -254,3 +258,27 @@ def test_hardware_validation_harness_on_simulator_is_not_evidence(db, sim_switch
     names = {c["check"] for c in report["checks"]}
     assert {"system", "ports", "vlans", "poe_ports", "lldp", "running_config"} <= names
     assert report["device"]["product"] == "JL356A"
+
+
+def build_rest_macs():
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", []))
+    macs = build().get_mac_table()
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", ["/mac-table", "/lldp", "/vlans", "/cli", "/ports"]))
+    return macs
+
+
+def test_snmp_vlans_include_default_vlan_from_current_table():
+    from app.drivers.aruba.aos_switch import mac_table, vlans
+    from app.drivers.aruba.aos_switch import snmp_client as o
+
+    class Fake:
+        def table(self, oid):
+            return {
+                o.DOT1Q_VLAN_NAME: {"50": "DATA", "98": "MGMT"},  # device omits VLAN 1 from the static table
+                o.DOT1Q_VLAN_FDB_ID: {"0.1": 1, "0.50": 2, "0.98": 3},
+                o.DOT1Q_FDB_PORT: {"2.0.17.34.51.68.85": 5, "3.0.17.34.51.68.86": 6, "1.0.17.34.51.68.87": 7},
+                o.DOT1D_BASEPORT_IFINDEX: {}, o.IF_NAME: {},
+            }.get(oid, {})
+
+    assert [(v.vlan_id, v.name) for v in vlans.snmp_vlans(Fake())] == [(1, "DEFAULT_VLAN"), (50, "DATA"), (98, "MGMT")]
+    assert sorted(m.vlan_id for m in mac_table.snmp_mac_table(Fake())) == [1, 50, 98]

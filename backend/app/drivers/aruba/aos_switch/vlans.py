@@ -25,5 +25,11 @@ def parse_rest_vlan_ports(data: dict) -> list[VlanMembership]:
 
 
 def snmp_vlans(snmp: o.SnmpClient) -> list[VlanInfo]:
-    return [VlanInfo(vlan_id=int(idx), name=str(name)) for idx, name in snmp.table(o.DOT1Q_VLAN_NAME).items()
-            if idx.isdigit()]
+    """Configured VLANs (dot1qVlanStaticTable) plus any VLAN only present in dot1qVlanCurrentTable, so the
+    default VLAN 1 is listed even when a device leaves it out of the static table."""
+    names = {int(idx): str(name or "") for idx, name in snmp.table(o.DOT1Q_VLAN_NAME).items() if idx.isdigit()}
+    for suffix in snmp.table(o.DOT1Q_VLAN_FDB_ID):
+        parts = suffix.split(".")
+        if len(parts) == 2 and parts[1].isdigit():
+            names.setdefault(int(parts[1]), "DEFAULT_VLAN" if parts[1] == "1" else "")
+    return [VlanInfo(vlan_id=vid, name=name) for vid, name in sorted(names.items())]
