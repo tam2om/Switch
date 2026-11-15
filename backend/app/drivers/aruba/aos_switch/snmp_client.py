@@ -46,6 +46,16 @@ ENT_SENSOR_TYPE = "1.3.6.1.2.1.99.1.1.1.1"
 ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.2"
 ENT_SENSOR_VALUE = "1.3.6.1.2.1.99.1.1.1.4"
 
+# POWER-ETHERNET-MIB pethPsePortTable, index: groupIndex.portIndex
+PETH_PORT_ADMIN = "1.3.6.1.2.1.105.1.1.1.3"  # true(1) / false(2)
+PETH_PORT_DETECTION = "1.3.6.1.2.1.105.1.1.1.6"  # disabled(1) searching(2) deliveringPower(3) fault(4) test(5) otherFault(6)
+PETH_PORT_PRIORITY = "1.3.6.1.2.1.105.1.1.1.7"  # critical(1) high(2) low(3)
+PETH_PORT_CLASS = "1.3.6.1.2.1.105.1.1.1.10"  # class0(1) .. class4(5)
+# HP-ICF-POE-MIB hpicfPoePethPsePortTable, same index as pethPsePortTable. Checked against a JL356A on
+# YC.16.11.0018: column 3 is the power the PSE delivers in milliwatts (matches "PSE Pwr Rsrvd" in
+# `show power-over-ethernet brief`), column 4 the allocation method usage(1)/class(2)/value(3).
+HP_POE_PORT_POWER_MW = "1.3.6.1.4.1.11.2.14.11.1.9.1.1.1.3"
+HP_POE_PORT_ALLOCATE_BY = "1.3.6.1.4.1.11.2.14.11.1.9.1.1.1.4"
 PETH_MAIN_POWER = "1.3.6.1.2.1.105.1.3.1.1.2"
 PETH_MAIN_STATUS = "1.3.6.1.2.1.105.1.3.1.1.3"
 PETH_MAIN_CONSUMPTION = "1.3.6.1.2.1.105.1.3.1.1.4"
@@ -56,6 +66,11 @@ DOT1Q_VLAN_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
 # dot1qVlanFdbId: index dot1qVlanTimeMark.dot1qVlanIndex (the VLAN ID), value dot1qFdbId. The FDB tables are
 # indexed by dot1qFdbId, which on AOS-Switch is an internal counter (1..n), NOT the VLAN ID.
 DOT1Q_VLAN_FDB_ID = "1.3.6.1.2.1.17.7.1.4.2.1.3"
+# Q-BRIDGE-MIB port bitmaps (PortList: bit 1 = most significant bit of the first octet = bridge port 1).
+DOT1Q_VLAN_STATIC_EGRESS = "1.3.6.1.2.1.17.7.1.4.3.1.2"  # index: vid
+DOT1Q_VLAN_STATIC_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.3.1.4"  # index: vid
+DOT1Q_VLAN_CURRENT_EGRESS = "1.3.6.1.2.1.17.7.1.4.2.1.4"  # index: timeMark.vid
+DOT1Q_VLAN_CURRENT_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.2.1.5"  # index: timeMark.vid
 
 LLDP_REM_CHASSIS_ID = "1.0.8802.1.1.2.1.4.1.1.5"
 LLDP_REM_PORT_ID = "1.0.8802.1.1.2.1.4.1.1.7"
@@ -203,6 +218,28 @@ def format_mac(raw: Any) -> str:
     if len(s) == 12 and all(c in "0123456789abcdef" for c in s):
         return ":".join(s[i:i + 2] for i in range(0, 12, 2))
     return str(raw)
+
+
+def octets(raw: Any) -> bytes:
+    """An OctetString value as bytes, even when it happened to decode as printable text."""
+    if isinstance(raw, bytes | bytearray):
+        return bytes(raw)
+    if raw is None:
+        return b""
+    text = str(raw)
+    if text.lower().startswith("0x") and all(c in "0123456789abcdefABCDEF" for c in text[2:]):
+        return bytes.fromhex(text[2:])
+    return text.encode()
+
+
+def portlist(raw: Any) -> set[int]:
+    """Q-BRIDGE PortList bitmap -> set of bridge port numbers (1-based, MSB first)."""
+    out = set()
+    for i, byte in enumerate(octets(raw)):
+        for bit in range(8):
+            if byte & (0x80 >> bit):
+                out.add(i * 8 + bit + 1)
+    return out
 
 
 def mac_from_oid_suffix(suffix: str) -> str:

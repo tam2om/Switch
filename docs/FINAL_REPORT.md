@@ -11,7 +11,7 @@ It must not manage production switches until the hardware validation procedure h
 
 | Suite | Result |
 |---|---|
-| Backend (pytest, PostgreSQL + TimescaleDB + Redis, simulator) | 131 passed |
+| Backend (pytest, PostgreSQL + TimescaleDB + Redis, simulator) | 136 passed |
 | Backend lint (ruff) | clean |
 | Frontend unit tests (Vitest) | 26 passed |
 | Frontend type check and production build | clean, 25 routes |

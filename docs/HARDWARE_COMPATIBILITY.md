@@ -50,9 +50,11 @@ Generated from `backend/app/drivers/aruba/aos_switch/capabilities.py`
 | `vlans.read` | REST | GET /vlans |  | `snmp.qbridge` | documented |  |
 | `snmp.qbridge` | SNMP | Q-BRIDGE-MIB dot1qVlanStaticTable |  |  | documented |  |
 | `vlans.write` | REST | POST/PUT/DELETE /vlans | yes | `cli.vlan` | documented |  |
-| `vlan_ports.read` | REST | GET /vlans-ports |  |  | documented |  |
+| `vlan_ports.read` | REST | GET /vlans-ports |  | `snmp.vlan_ports` | documented |  |
+| `snmp.vlan_ports` | SNMP | Q-BRIDGE-MIB dot1qVlanStaticEgressPorts/UntaggedPorts (current table if empty) |  |  | documented | Parsing checked against a recorded walk of a JL356A on YC.16.11.0018 |
 | `vlan_ports.write` | REST | POST/DELETE /vlans-ports | yes | `cli.vlan` | documented |  |
-| `poe.read` | REST | GET /poe/ports |  |  | documented |  |
+| `poe.read` | REST | GET /poe/ports |  | `snmp.poe_ports` | documented |  |
+| `snmp.poe_ports` | SNMP | POWER-ETHERNET-MIB pethPsePortTable + HP-ICF-POE-MIB port power (mW) and allocate-by |  |  | documented | Matches `show power-over-ethernet brief` on a JL356A; allocated power value is REST-only |
 | `poe.stats` | REST | GET /poe/ports/stats |  |  | documented |  |
 | `poe.summary` | SNMP | POWER-ETHERNET-MIB pethMainPseTable 1.3.6.1.2.1.105.1.3.1.1 |  |  | documented |  |
 | `poe.write` | REST | PUT /poe/ports/{id} | yes | `cli.interface` | documented |  |
@@ -112,7 +114,9 @@ How the application handles them:
   module type is not read yet, so slot ports are shown as "PoE+" when the device reports PoE for them and are left
   blank otherwise (an SFP+ module port is not labelled SFP+).
 * **PoE.** Budget and consumption come from POWER-ETHERNET-MIB, summed over all PSE rows (a chassis can report more
-  than one). Per-port PoE comes from REST `/poe/ports` for whichever ports the device lists.
+  than one). Per-port PoE comes from REST `/poe/ports` for whichever ports the device lists, or from
+  POWER-ETHERNET-MIB when REST is not available. If a chassis numbers PoE ports per slot group instead of by
+  ifIndex, group g / port n is mapped to the slot port (g-1)*24+n.
 * **ifIndex.** Read from IF-MIB. If a port is first seen over REST only, the AOS-Switch convention (A1 = 1,
   B1 = 25, ...) is assumed until SNMP supplies the real value.
 * **Not covered.** VSF/backplane stacking, chassis redundancy (dual management modules), module inventory and
@@ -121,6 +125,19 @@ How the application handles them:
 
 None of these models has been validated on hardware. The validation procedure in
 [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) applies to each model separately.
+
+## Reading without REST (SNMPv3 only)
+
+When a switch has no REST credential, or a REST resource is missing, every read has an SNMP source:
+
+* VLAN port membership: Q-BRIDGE-MIB static egress/untagged bitmaps, mapped to port names through
+  dot1dBasePortIfIndex and ifName. Bits for bridge ports that do not exist are ignored.
+* Per-port PoE: enable, detection status, priority and class from POWER-ETHERNET-MIB; delivered power (mW) and
+  allocation method from HP-ICF-POE-MIB. The allocated power value is only available over REST.
+
+SNMP stays read-only. Changes still need REST or SSH configuration credentials. Both parsers were checked against a
+read-only walk of a JL356A on YC.16.11.0018 (`backend/tests/fixtures/`) and its CLI output. This confirms the
+parsing only. It is not a full hardware validation.
 
 ## Items with known uncertainty on real hardware
 

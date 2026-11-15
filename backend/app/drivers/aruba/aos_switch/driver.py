@@ -217,21 +217,35 @@ class AosSwitchDriver(SwitchDriver):
         return vlans.snmp_vlans(self.snmp)
 
     def get_vlan_memberships(self) -> list[VlanMembership]:
-        if not self._rest_ok("vlan_ports.read"):
-            raise UnsupportedOperation("VLAN port membership requires the REST /vlans-ports resource",
+        if self._rest_ok("vlan_ports.read"):
+            try:
+                return vlans.parse_rest_vlan_ports(self.rest.get("/vlans-ports"))
+            except DriverError as exc:
+                self._fallback("vlan_ports.read", exc)
+        if not self.ctx.snmp_factory:
+            raise UnsupportedOperation("VLAN port membership needs REST /vlans-ports or SNMPv3 (Q-BRIDGE-MIB)",
                                        protocol="rest")
-        return vlans.parse_rest_vlan_ports(self.rest.get("/vlans-ports"))
+        members = vlans.snmp_vlan_memberships(self.snmp)
+        if not members:
+            raise UnsupportedOperation("The device returned no Q-BRIDGE-MIB VLAN port membership", protocol="snmp")
+        return members
 
     def get_poe_ports(self) -> list[PoePortInfo]:
-        if not self._rest_ok("poe.read"):
-            raise UnsupportedOperation("Per-port PoE data requires the REST /poe/ports resource", protocol="rest")
-        stats = None
-        if self._rest_ok("poe.stats"):
+        if self._rest_ok("poe.read"):
             try:
-                stats = self.rest.get("/poe/ports/stats")
+                stats = None
+                if self._rest_ok("poe.stats"):
+                    try:
+                        stats = self.rest.get("/poe/ports/stats")
+                    except DriverError as exc:
+                        self._fallback("poe.stats", exc)
+                return poe.parse_rest_poe(self.rest.get("/poe/ports"), stats)
             except DriverError as exc:
-                self._fallback("poe.stats", exc)
-        return poe.parse_rest_poe(self.rest.get("/poe/ports"), stats)
+                self._fallback("poe.read", exc)
+        if not self.ctx.snmp_factory:
+            raise UnsupportedOperation("Per-port PoE needs REST /poe/ports or SNMPv3 (POWER-ETHERNET-MIB)",
+                                       protocol="rest")
+        return poe.snmp_poe_ports(self.snmp)
 
     def get_poe_summary(self) -> PoeSummary:
         return poe.snmp_poe_summary(self.snmp)

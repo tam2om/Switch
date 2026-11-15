@@ -36,7 +36,7 @@ Status legend: ✅ done and tested · ⏳ implemented, awaiting physical switch 
 - ⏳ Against live Zabbix/AirWave servers.
 
 ## Stage 6: testing and hardening
-- ✅ Backend: 131 tests pass (pytest) including all four roles and a 100-switch simulated workload; ruff clean.
+- ✅ Backend: 136 tests pass (pytest) including all four roles and a 100-switch simulated workload; ruff clean.
 - ✅ Frontend: 26 unit tests (Vitest), TypeScript clean, production build succeeds.
 - ✅ End to end: 10 Playwright scenarios pass against the dev stack and against the Compose stack through Nginx.
 - ✅ CI (GitHub Actions): backend, frontend, end-to-end and Compose deploy/backup/restore jobs on every push.

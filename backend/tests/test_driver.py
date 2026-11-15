@@ -282,3 +282,129 @@ def test_snmp_vlans_include_default_vlan_from_current_table():
 
     assert [(v.vlan_id, v.name) for v in vlans.snmp_vlans(Fake())] == [(1, "DEFAULT_VLAN"), (50, "DATA"), (98, "MGMT")]
     assert sorted(m.vlan_id for m in mac_table.snmp_mac_table(Fake())) == [1, 50, 98]
+
+
+def test_vlan_membership_and_poe_ports_over_snmp_match_rest():
+    st.get_or_create(IP, 1, 1)
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", []))
+    st.mutate(IP, lambda s: s.ports["6"].__setattr__("poe_priority", "critical"))
+    rest = build()
+    rest_members = {(m.vlan_id, m.port, m.mode) for m in rest.get_vlan_memberships()}
+    rest_poe = {p.port: p for p in rest.get_poe_ports()}
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", ["/vlans-ports", "/poe"]))
+    d = build()
+    snmp_members = {(m.vlan_id, m.port, m.mode) for m in d.get_vlan_memberships()}
+    assert snmp_members == rest_members and ("1" in {p for _, p, _ in snmp_members})
+    snmp_poe = {p.port: p for p in d.get_poe_ports()}
+    assert set(snmp_poe) == set(rest_poe) == {str(n) for n in range(1, 25)}
+    for name, p in snmp_poe.items():
+        r = rest_poe[name]
+        assert (p.enabled, p.priority, p.detection_status) == (r.enabled, r.priority, r.detection_status), name
+        assert p.power_drawn_w is not None and abs(p.power_drawn_w - (r.power_drawn_w or 0)) <= 0.6
+        assert p.allocation_method == r.allocation_method
+    assert snmp_poe["6"].priority == "critical"
+    assert d.ctx.probed.get("vlan_ports.read") is False and d.ctx.probed.get("poe.read") is False
+
+
+def test_vlan_membership_without_any_source_is_unsupported():
+    st.get_or_create(IP, 1, 1)
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", ["/vlans-ports", "/poe"]))
+    d = build(snmp=None)
+    with pytest.raises(DriverError) as e:
+        d.get_vlan_memberships()
+    assert e.value.code == "unsupported"
+    st.mutate(IP, lambda s: setattr(s, "unsupported_rest", []))
+
+
+def test_portlist_bitmaps_and_printable_octets():
+    from app.drivers.aruba.aos_switch import snmp_client as o
+    from app.drivers.aruba.aos_switch import vlans
+
+    assert o.portlist(b"\x80\x01") == {1, 16}
+    assert o.portlist("A") == {2, 8}  # 0x41 decoded as text by the SNMP layer must still be a bitmap
+    assert o.portlist("0x4000") == {2}
+    assert o.portlist(None) == set()
+
+    class Fake:  # bridge ports 1..3 -> ifIndex 1..3, current table only (static empty), VLAN 50 tagged on 3
+        def table(self, oid):
+            return {
+                o.DOT1Q_VLAN_CURRENT_EGRESS: {"0.1": b"\xc0", "0.50": b"\x20"},
+                o.DOT1Q_VLAN_CURRENT_UNTAGGED: {"0.1": b"\xc0", "0.50": b"\x00"},
+                o.DOT1D_BASEPORT_IFINDEX: {"1": 1, "2": 2, "3": 3},
+                o.IF_NAME: {"1": "1", "2": "2", "3": "3"},
+            }.get(oid, {})
+
+    got = [(m.vlan_id, m.port, m.mode) for m in vlans.snmp_vlan_memberships(Fake())]
+    assert got == [(1, "1", "untagged"), (1, "2", "untagged"), (50, "3", "tagged")]
+
+
+def test_poe_ports_over_snmp_per_group_numbering():
+    from app.drivers.aruba.aos_switch import poe
+    from app.drivers.aruba.aos_switch import snmp_client as o
+
+    class Fake:  # chassis numbering PoE ports per slot group: 1.1 = A1, 2.1 = B1
+        def tables(self, oids):
+            return {oid: self.table(oid) for oid in oids}
+
+        def table(self, oid):
+            return {
+                o.PETH_PORT_ADMIN: {"1.1": 1, "2.1": 2},
+                o.PETH_PORT_DETECTION: {"1.1": 3, "2.1": 1},
+                o.HP_POE_PORT_POWER_MW: {"1.1": 6500},
+                o.IF_NAME: {"1": "A1", "25": "B1"},
+            }.get(oid, {})
+
+    got = {p.port: (p.enabled, p.detection_status, p.power_drawn_w) for p in poe.snmp_poe_ports(Fake())}
+    assert got == {"A1": (True, "delivering", 6.5), "B1": (False, "disabled", None)}
+
+
+def _recorded_walk(name):
+    """Parse a recorded walk (".OID = value", Hex-STRING bitmaps, Python reprs) into a fake SNMP client."""
+    import ast
+    from pathlib import Path
+
+    rows = {}
+    for line in (Path(__file__).parent / "fixtures" / name).read_text().splitlines():
+        oid, _, raw = line.partition(" = ")
+        raw = raw.strip()
+        if raw.startswith("Hex-STRING:"):
+            val = bytes.fromhex(raw.removeprefix("Hex-STRING:").replace(" ", ""))
+        else:
+            val = ast.literal_eval(raw)
+        rows[oid.lstrip(".")] = val
+
+    class Recorded:
+        def table(self, oid):
+            prefix = oid + "."
+            return {k[len(prefix):]: v for k, v in rows.items() if k.startswith(prefix)}
+
+        def tables(self, oids):
+            return {oid: self.table(oid) for oid in oids}
+
+    return Recorded()
+
+
+def test_snmp_membership_and_poe_parse_real_2540_walk():
+    """Recorded from a JL356A on YC.16.11.0018 (read-only walk) and compared with the switch's own CLI."""
+    from app.drivers.aruba.aos_switch import poe, vlans
+
+    snmp = _recorded_walk("snmp_walk_jl356a_yc_16_11_0018.txt")
+    members = vlans.snmp_vlan_memberships(snmp)
+    untagged = {m.port: m.vlan_id for m in members if m.mode == "untagged"}
+    tagged = {}
+    for m in members:
+        if m.mode == "tagged":
+            tagged.setdefault(m.port, set()).add(m.vlan_id)
+    # every port has exactly one untagged VLAN; only the 28 real ports appear despite the 600-bit bitmaps
+    assert set(untagged) == {str(n) for n in range(1, 29)}
+    assert {p: untagged[p] for p in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12")} == {
+        "1": 50, "2": 70, "3": 70, "4": 80, "5": 80, "6": 98, "7": 50, "8": 1, "9": 1, "11": 50, "12": 50}
+    assert tagged["25"] == {50, 53, 60, 61, 70, 80, 90, 95, 98} and "1" not in tagged
+
+    ports = {p.port: p for p in poe.snmp_poe_ports(snmp)}
+    assert set(ports) == {str(n) for n in range(1, 25)}
+    # `show power-over-ethernet brief`: ports 4 and 5 deliver 3.4 W and 3.5 W, all others search, priority low, usage
+    assert (ports["4"].detection_status, ports["4"].power_drawn_w, ports["4"].power_class) == ("delivering", 3.4, "0")
+    assert (ports["5"].detection_status, ports["5"].power_drawn_w) == ("delivering", 3.5)
+    assert all(p.detection_status == "searching" for n, p in ports.items() if n not in ("4", "5"))
+    assert all(p.enabled and p.priority == "low" and p.allocation_method == "usage" for p in ports.values())

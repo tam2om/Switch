@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.drivers.aruba.aos_switch import snmp_client as o
+from app.drivers.aruba.aos_switch.models import SLOT_IFINDEX_STRIDE
 from app.drivers.base import PoePortInfo, PoeSummary
 
 PRIORITY = {"PPP_LOW": "low", "PPP_HIGH": "high", "PPP_CRITICAL": "critical"}
@@ -43,3 +44,52 @@ def snmp_poe_summary(snmp: o.SnmpClient) -> PoeSummary:
     st = next(iter(status.values()), None)
     return PoeSummary(budget_w=budget, consumed_w=consumed,
                       oper_status={1: "on", 2: "off", 3: "faulty"}.get(int(st)) if st is not None else None)
+
+
+SNMP_DETECTION = {1: "disabled", 2: "searching", 3: "delivering", 4: "fault", 5: "test", 6: "fault"}
+SNMP_PRIORITY = {1: "critical", 2: "high", 3: "low"}
+
+
+def snmp_poe_ports(snmp: o.SnmpClient) -> list[PoePortInfo]:
+    """Per-port PoE from POWER-ETHERNET-MIB (state, priority, class) and HP-ICF-POE-MIB (watts drawn).
+    The allocated power value is only available over REST and stays unknown here."""
+    cols = snmp.tables([o.PETH_PORT_ADMIN, o.PETH_PORT_DETECTION, o.PETH_PORT_PRIORITY, o.PETH_PORT_CLASS,
+                        o.HP_POE_PORT_POWER_MW, o.HP_POE_PORT_ALLOCATE_BY])
+    admin = cols[o.PETH_PORT_ADMIN]
+    if not admin:
+        return []
+    names = snmp.table(o.IF_NAME)
+
+    def i(col: str, idx: str) -> int | None:
+        v = cols[col].get(idx)
+        try:
+            return int(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # The port index normally equals the ifIndex (group 1). If a chassis numbers ports per group instead
+    # (the same port index appearing in several groups), map group g / port n to the slot ifIndex (g-1)*24+n.
+    keys = sorted(admin, key=lambda k: [int(x) for x in k.split(".") if x.isdigit()])
+    port_ids = [k.split(".")[-1] for k in keys]
+    per_group = len(set(port_ids)) < len(port_ids)
+
+    out = []
+    for idx in keys:
+        parts = idx.split(".")
+        group, port_index = (parts[-2], parts[-1]) if len(parts) >= 2 else ("1", parts[0])
+        if per_group and group.isdigit() and port_index.isdigit():
+            port_index = str((int(group) - 1) * SLOT_IFINDEX_STRIDE + int(port_index))
+        det = SNMP_DETECTION.get(i(o.PETH_PORT_DETECTION, idx) or 0)
+        mw = i(o.HP_POE_PORT_POWER_MW, idx)
+        cls = i(o.PETH_PORT_CLASS, idx)
+        out.append(PoePortInfo(
+            port=str(names.get(port_index, port_index)),
+            enabled={1: True, 2: False}.get(i(o.PETH_PORT_ADMIN, idx) or 0),
+            priority=SNMP_PRIORITY.get(i(o.PETH_PORT_PRIORITY, idx) or 0),
+            allocation_method={1: "usage", 2: "class", 3: "value"}.get(i(o.HP_POE_PORT_ALLOCATE_BY, idx) or 0),
+            power_drawn_w=round(mw / 1000, 1) if mw is not None else None,
+            detection_status=det,
+            power_class=str(cls - 1) if cls and det == "delivering" else None,
+            fault="reported by device" if det == "fault" else None,
+        ))
+    return out

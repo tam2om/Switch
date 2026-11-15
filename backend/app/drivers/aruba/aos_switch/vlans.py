@@ -33,3 +33,37 @@ def snmp_vlans(snmp: o.SnmpClient) -> list[VlanInfo]:
         if len(parts) == 2 and parts[1].isdigit():
             names.setdefault(int(parts[1]), "DEFAULT_VLAN" if parts[1] == "1" else "")
     return [VlanInfo(vlan_id=vid, name=name) for vid, name in sorted(names.items())]
+
+
+def _bridge_port_names(snmp: o.SnmpClient) -> dict[int, str]:
+    """Bridge port number -> interface name, through dot1dBasePortIfIndex and ifName."""
+    names = snmp.table(o.IF_NAME)
+    baseport = snmp.table(o.DOT1D_BASEPORT_IFINDEX)
+    if baseport:
+        return {int(bp): str(names.get(str(ifidx), ifidx)) for bp, ifidx in baseport.items() if bp.isdigit()}
+    # No bridge port table: AOS-Switch numbers bridge ports like ifIndex.
+    return {int(i): str(n) for i, n in names.items() if i.isdigit()}
+
+
+def snmp_vlan_memberships(snmp: o.SnmpClient) -> list[VlanMembership]:
+    """Configured (static) membership from Q-BRIDGE-MIB; the current table is used if the static one is empty."""
+    egress = {int(k): v for k, v in snmp.table(o.DOT1Q_VLAN_STATIC_EGRESS).items() if k.isdigit()}
+    untagged = {int(k): v for k, v in snmp.table(o.DOT1Q_VLAN_STATIC_UNTAGGED).items() if k.isdigit()}
+    if not egress:
+        def by_vid(table: dict) -> dict[int, object]:
+            return {int(k.split(".")[-1]): v for k, v in table.items() if k.split(".")[-1].isdigit()}
+
+        egress = by_vid(snmp.table(o.DOT1Q_VLAN_CURRENT_EGRESS))
+        untagged = by_vid(snmp.table(o.DOT1Q_VLAN_CURRENT_UNTAGGED))
+    if not egress:
+        return []
+    ports = _bridge_port_names(snmp)
+    out = []
+    for vid in sorted(egress):
+        unt = o.portlist(untagged.get(vid))
+        for bp in sorted(o.portlist(egress[vid]) | unt):
+            name = ports.get(bp)
+            if name is None:
+                continue
+            out.append(VlanMembership(vlan_id=vid, port=name, mode="untagged" if bp in unt else "tagged"))
+    return out

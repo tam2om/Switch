@@ -71,6 +71,34 @@ class SimSnmpTransport:
             t[f"{o.IF_TYPE}.{1000 + vid}"] = 136
             t[f"{o.DOT1Q_VLAN_NAME}.{vid}"] = vname
             t[f"{o.DOT1Q_VLAN_FDB_ID}.0.{vid}"] = fdb_ids[vid]
+        # Q-BRIDGE static membership bitmaps (bridge port = ifIndex on AOS-Switch).
+        width = (max((sw.if_index(n) for n in sw.ports), default=0) + 7) // 8
+
+        def bitmap(names: list[str]) -> bytes:
+            b = bytearray(width)
+            for n in names:
+                i = sw.if_index(n) - 1
+                b[i // 8] |= 0x80 >> (i % 8)
+            return bytes(b)
+
+        for vid in sw.vlans:
+            unt = [n for n, v in sw.untagged.items() if v == vid]
+            tag = [n for n, vs in sw.tagged.items() if vid in vs]
+            t[f"{o.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = bitmap(unt + tag)
+            t[f"{o.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"] = bitmap(unt)
+        # POWER-ETHERNET-MIB per-port table (group 1, port index = ifIndex) and HP per-port milliwatts.
+        for name, p in sw.ports.items():
+            if not sw.is_poe_port(name):
+                continue
+            idx = f"1.{sw.if_index(name)}"
+            status = sw.poe_status(p)
+            t[f"{o.PETH_PORT_ADMIN}.{idx}"] = 1 if p.poe_enabled else 2
+            t[f"{o.PETH_PORT_DETECTION}.{idx}"] = {"PPDS_DISABLED": 1, "PPDS_SEARCHING": 2, "PPDS_DELIVERING": 3,
+                                                   "PPDS_FAULT": 4}.get(status, 6)
+            t[f"{o.PETH_PORT_PRIORITY}.{idx}"] = {"critical": 1, "high": 2, "low": 3}[p.poe_priority]
+            t[f"{o.PETH_PORT_CLASS}.{idx}"] = int(p.poe_class) + 1 if p.poe_class else 1
+            t[f"{o.HP_POE_PORT_POWER_MW}.{idx}"] = int(round(sw.poe_drawn(p) * 1000))
+            t[f"{o.HP_POE_PORT_ALLOCATE_BY}.{idx}"] = {"usage": 1, "class": 2, "value": 3}[p.poe_alloc]
         for m in sw.macs:
             if sw.oper_up(sw.ports[m["port"]]) and m["vlan"] in fdb_ids:
                 octs = ".".join(str(int(x, 16)) for x in m["mac"].split(":"))

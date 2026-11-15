@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -30,8 +31,11 @@ _CHECKS: list[tuple[str, list[str], Callable[[SwitchDriver], Any], Callable[[Any
     ("ports", ["ports.read", "snmp.ifmib"], lambda d: d.get_ports(), lambda r: {"count": len(r)}),
     ("port_counters", ["ports.counters"], lambda d: d.get_port_counters(), lambda r: {"count": len(r)}),
     ("vlans", ["vlans.read", "snmp.qbridge"], lambda d: d.get_vlans(), lambda r: {"count": len(r)}),
-    ("vlan_memberships", ["vlan_ports.read"], lambda d: d.get_vlan_memberships(), lambda r: {"count": len(r)}),
-    ("poe_ports", ["poe.read", "poe.stats"], lambda d: d.get_poe_ports(), lambda r: {"count": len(r)}),
+    ("vlan_memberships", ["vlan_ports.read", "snmp.vlan_ports"], lambda d: d.get_vlan_memberships(),
+     lambda r: {"count": len(r), "sample": [asdict(m) for m in r[:8]]}),
+    ("poe_ports", ["poe.read", "poe.stats", "snmp.poe_ports"], lambda d: d.get_poe_ports(),
+     lambda r: {"count": len(r), "with_watts": sum(1 for p in r if p.power_drawn_w is not None),
+                "sample": [asdict(p) for p in r[:8]]}),
     ("poe_summary", ["poe.summary"], lambda d: d.get_poe_summary(),
      lambda r: {"budget_w": r.budget_w, "consumed_w": r.consumed_w, "oper_status": r.oper_status}),
     ("mac_table", ["mac.read", "snmp.fdb"], lambda d: d.get_mac_table(), lambda r: {"count": len(r)}),
