@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+
+jobs:
+  backend:
+    name: Backend lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: timescale/timescaledb:2.32.0-pg16
+        env:
+          POSTGRES_USER: anm
+          POSTGRES_PASSWORD: ci-only-db-password
+          POSTGRES_DB: anm_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U anm -d anm_test" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ANM_TEST_DATABASE_URL: postgresql+psycopg://anm:ci-only-db-password@localhost:5432/anm_test
+      ANM_REDIS_URL: redis://localhost:6379/0
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - name: Install pinned dependencies
+        run: |
+          pip install --no-deps -r requirements.lock
+          pip install --no-deps -e .
+          pip install "pytest>=8.3" "pytest-cov>=5" "ruff>=0.7" pip-audit
+      - name: Lint
+        run: ruff check app tests
+      - name: Tests
+        run: pytest -q
+      - name: Dependency audit
+        run: pip-audit -r requirements.lock --progress-spinner off
+
+  frontend:
+    name: Frontend checks, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
+
+  e2e:
+    name: End-to-end (simulator stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: timescale/timescaledb:2.32.0-pg16
+        env:
+          POSTGRES_USER: anm
+          POSTGRES_PASSWORD: ci-only-db-password
+          POSTGRES_DB: anm
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U anm -d anm" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ANM_ENVIRONMENT: development
+      ANM_DATABASE_URL: postgresql+psycopg://anm:ci-only-db-password@localhost:5432/anm
+      ANM_REDIS_URL: redis://localhost:6379/0
+      ANM_STORAGE_BACKEND: filesystem
+      ANM_STORAGE_PATH: /tmp/anm-backups
+      ANM_SIMULATOR_ENABLED: "true"
+      ANM_COOKIE_SECURE: "false"
+      E2E_SUPERADMIN_USER: ci-superadmin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generate throwaway secrets
+        run: |
+          echo "ANM_ENCRYPTION_KEYS=ci:$(openssl rand 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=')" >> "$GITHUB_ENV"
+          echo "ANM_SESSION_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          PW="Ci-$(openssl rand -hex 12)-Pw!"
+          echo "::add-mask::$PW"
+          echo "E2E_SUPERADMIN_PASSWORD=$PW" >> "$GITHUB_ENV"
+      - name: Start backend, worker and scheduler
+        working-directory: backend
+        run: |
+          pip install --no-deps -r requirements.lock && pip install --no-deps -e .
+          alembic upgrade head
+          python -m app.cli init
+          ANM_INITIAL_PASSWORD="$E2E_SUPERADMIN_PASSWORD" python -m app.cli create-superadmin "$E2E_SUPERADMIN_USER"
+          python -m app.cli seed-simulator 52
+          nohup uvicorn app.main:app --port 8000 > /tmp/api.log 2>&1 &
+          nohup celery -A app.workers.celery_app worker -Q default,polling,changes --concurrency 4 > /tmp/worker.log 2>&1 &
+          nohup celery -A app.workers.celery_app beat --schedule /tmp/celerybeat-schedule > /tmp/beat.log 2>&1 &
+      - name: Start frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          nohup npm run dev > /tmp/web.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:3000/login >/dev/null && curl -fs http://127.0.0.1:8000/health/ready >/dev/null && break; sleep 2; done
+          sleep 30   # let the first polling cycle fill the simulated fleet
+      - name: Playwright
+        working-directory: frontend
+        run: npx playwright test
+      - name: Logs on failure
+        if: failure()
+        run: tail -n 200 /tmp/api.log /tmp/worker.log /tmp/web.log
+
+  compose:
+    name: Docker Compose deployment, backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare host files
+        run: |
+          ./deploy/scripts/init-secrets.sh
+          sed -i 's/^ANM_SIMULATOR_ENABLED=.*/ANM_SIMULATOR_ENABLED=true/; s/^ANM_HTTPS_BIND=.*/ANM_HTTPS_BIND=127.0.0.1:8443/; s/^ANM_HTTP_BIND=.*/ANM_HTTP_BIND=127.0.0.1:8080/' .env
+          ./deploy/scripts/make-selfsigned-cert.sh anm.ci.internal 127.0.0.1
+          cp deploy/nginx/allowed-networks.conf.example deploy/nginx/allowed-networks.conf
+      - name: Build and start
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Smoke test through Nginx
+        run: |
+          curl -fsk https://127.0.0.1:8443/health
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/api/openapi.json)" = 404
+          curl -fskI https://127.0.0.1:8443/login | grep -i '^strict-transport-security'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)" = 301
+      - name: First Super Admin, simulator and read-only hardware harness
+        run: |
+          PW="Ci-$(openssl rand -hex 12)-Pw!"
+          echo "::add-mask::$PW"
+          docker compose exec -T -e ANM_INITIAL_PASSWORD="$PW" backend docker-entrypoint.sh cli create-superadmin ci-admin
+          docker compose exec -T backend docker-entrypoint.sh cli seed-simulator 3
+          docker compose exec -T backend docker-entrypoint.sh cli hw-validate 1 > /tmp/hw.json
+          python3 -c "import json;r=json.load(open('/tmp/hw.json'));assert r['simulated'] and not r['valid_as_hardware_evidence'] and r['summary']['failed']==0, r['summary']"
+          docker compose exec -T backend docker-entrypoint.sh cli verify-audit
+      - name: Backup, change, restore
+        run: |
+          ./deploy/scripts/backup.sh /tmp/anm-bk
+          docker compose exec -T postgres psql -U anm -d anm -c "UPDATE users SET full_name='CHANGED' WHERE username='ci-admin'"
+          ./deploy/scripts/restore.sh /tmp/anm-bk/anm-* --yes
+          test -z "$(docker compose exec -T postgres psql -U anm -d anm -tAc "SELECT full_name FROM users WHERE username='ci-admin'" | tr -d '[:space:]')"
+          docker compose exec -T backend docker-entrypoint.sh cli verify-audit
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

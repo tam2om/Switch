@@ -1,0 +1,6 @@
+pyproject.toml
+aruba_network_manager.egg-info/PKG-INFO
+aruba_network_manager.egg-info/SOURCES.txt
+aruba_network_manager.egg-info/dependency_links.txt
+aruba_network_manager.egg-info/requires.txt
+aruba_network_manager.egg-info/top_level.txt
