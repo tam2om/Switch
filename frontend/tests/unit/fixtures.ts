@@ -23,7 +23,7 @@ export function makeMe(role: RoleName, extra: Partial<Me> = {}): Me {
 
 export function makePort(n: number, over: Partial<Port> = {}): Port {
   return {
-    id: n, name: String(n), if_index: n, port_number: n, description: "", port_type: n > 24 ? "SFP+" : "10/100/1000T PoE+", is_uplink: n > 24,
+    id: n, name: String(n), if_index: n, port_number: n, description: "", faceplate_label: "", port_type: n > 24 ? "SFP+" : "10/100/1000T PoE+", is_uplink: n > 24,
     trunk_group: null, admin_up: true, oper_up: true, speed_mbps: 1000, duplex: "full", config_mode: "auto", untagged_vlan: 1, tagged_vlans: [],
     in_bps: 1000, out_bps: 1000, in_errors: 0, out_errors: 0, in_discards: 0, out_discards: 0, flap_count: 0, status_changed_at: null, updated_at: null,
     poe: null, macs: [], neighbors: [], ...over,

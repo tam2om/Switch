@@ -106,3 +106,43 @@ def test_changes_on_slot_ports(client, db, sim_switches):
     assert sim.ports["A7"].description == "Front desk" and sim.untagged["A7"] == 30
     cfg = sim.running_config()
     assert "module A type j9986a" in cfg and "interface A7" in cfg
+
+
+def test_faceplate_label_is_app_only_audited_kept_across_polls_and_searchable(client, db, sim_switches):
+    from app.models import AuditLog
+
+    ids = sim_switches(1)
+    for c in ("inventory", "availability", "mac"):
+        polling.run_category(c, ids)
+    sim_before = st.store.get(db.get(Switch, ids[0]).mgmt_ip).running_config()
+    make_user(db, "viewer", "viewer2")
+    login(client, "viewer2")
+    url = f"/api/v1/switches/{ids[0]}/ports/3/faceplate-label"
+    assert client.put(url, json={"faceplate_label": "PP1-03"}).status_code == 403
+    client.post("/api/v1/auth/logout")
+    make_user(db, "admin", "ops2")
+    login(client, "ops2")
+    assert client.put(url, json={"faceplate_label": "bad;label"}).status_code == 422
+    assert client.put(url, json={"faceplate_label": "x" * 33}).status_code == 422
+    assert client.put(f"/api/v1/switches/{ids[0]}/ports/99/faceplate-label",
+                      json={"faceplate_label": "A"}).status_code == 404
+    r = client.put(url, json={"faceplate_label": " PP1-03 "})
+    assert r.status_code == 200 and r.json()["faceplate_label"] == "PP1-03"
+    a = db.query(AuditLog).filter_by(action="port.faceplate_label").one()
+    assert a.details == {"port": "3", "old": "", "new": "PP1-03"}
+    # kept across polls, never sent to the switch
+    for c in ("inventory", "availability", "counters"):
+        polling.run_category(c, ids)
+    ports = {p["name"]: p for p in client.get(f"/api/v1/switches/{ids[0]}/ports").json()}
+    assert ports["3"]["faceplate_label"] == "PP1-03" and ports["4"]["faceplate_label"] == ""
+    assert st.store.get(db.get(Switch, ids[0]).mgmt_ip).running_config() == sim_before
+    # shown and searchable in Connected devices
+    sim = st.store.get(db.get(Switch, ids[0]).mgmt_ip)
+    on_port3 = [m for m in sim.macs if m["port"] == "3"]
+    found = client.get("/api/v1/devices", params={"q": "pp1-03"}).json()["items"]
+    if on_port3:
+        assert found and all(d["port"] == "3" and d["faceplate_label"] == "PP1-03" for d in found)
+    else:
+        assert found == []
+    # clearing the label
+    assert client.put(url, json={"faceplate_label": ""}).json()["faceplate_label"] == ""

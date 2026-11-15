@@ -144,6 +144,8 @@ export interface Port {
   if_index: number;
   port_number: number | null;
   description: string;
+  /** Patch-panel / wall-jack label, stored in the application only. */
+  faceplate_label: string;
   port_type: string;
   is_uplink: boolean;
   trunk_group: string | null;

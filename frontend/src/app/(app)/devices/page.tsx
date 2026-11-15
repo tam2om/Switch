@@ -15,6 +15,7 @@ interface DeviceRow {
   hostname: string;
   is_simulated: boolean;
   port: string;
+  faceplate_label: string;
   vendor: string | null;
   first_seen: string;
   last_seen: string;
@@ -34,7 +35,7 @@ function Devices() {
       <PageHeader title="Connected devices" subtitle="Endpoints learned from switch MAC address tables (uplink ports excluded)" />
       <Card bodyClassName="p-0">
         <div className="flex flex-wrap gap-2 border-b border-line p-3">
-          <Input className="w-72" placeholder="MAC address, vendor or switch" aria-label="Search devices" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+          <Input className="w-72" placeholder="MAC, vendor, switch or faceplate label" aria-label="Search devices" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
           <Input className="w-28" type="number" placeholder="VLAN" aria-label="VLAN" value={vlan} onChange={(e) => { setVlan(e.target.value); setPage(1); }} />
           <Select className="w-40" aria-label="Activity" value={active} onChange={(e) => { setActive(e.target.value); setPage(1); }}>
             <option value="true">Currently seen</option>
@@ -55,6 +56,7 @@ function Devices() {
                       <Th>Vendor</Th>
                       <Th>Switch</Th>
                       <Th>Port</Th>
+                      <Th>Faceplate label</Th>
                       <Th>VLAN</Th>
                       <Th>LLDP</Th>
                       <Th>First seen</Th>
@@ -68,6 +70,7 @@ function Devices() {
                         <Td>{m.vendor || <span className="text-muted">unknown</span>}</Td>
                         <Td><Link href={`/switches/${m.switch_id}`} className="hover:text-accent">{m.hostname}</Link> <SimBadge show={m.is_simulated} /></Td>
                         <Td><Link href={`/switches/${m.switch_id}?tab=ports&port=${encodeURIComponent(m.port)}`} className="hover:text-accent">{m.port}</Link></Td>
+                        <Td>{m.faceplate_label || <span className="text-muted">–</span>}</Td>
                         <Td>{m.vlan_id ?? "–"}</Td>
                         <Td className="text-xs">{m.lldp ? `${m.lldp.system_name} (${m.lldp.remote_port})` : "–"}</Td>
                         <Td className="text-xs">{fmtDate(m.first_seen)}</Td>

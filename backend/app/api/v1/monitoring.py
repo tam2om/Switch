@@ -204,12 +204,17 @@ def poe_overview(user: User = Depends(require(P.POE_VIEW)), db: Session = Depend
 def devices(q: str | None = None, switch_id: int | None = None, vlan_id: int | None = None,
             active: bool | None = True, page: int = Query(1, ge=1), page_size: int = Query(100, le=500),
             user: User = Depends(require(P.DEVICE_VIEW)), db: Session = Depends(get_db)) -> dict:
-    stmt = select(MacLearnedEntry, Switch.hostname, Switch.is_simulated).join(Switch, Switch.id == MacLearnedEntry.switch_id)
+    stmt = (select(MacLearnedEntry, Switch.hostname, Switch.is_simulated, SwitchPort.faceplate_label)
+            .join(Switch, Switch.id == MacLearnedEntry.switch_id)
+            .outerjoin(SwitchPort, and_(SwitchPort.switch_id == MacLearnedEntry.switch_id,
+                                        SwitchPort.name == MacLearnedEntry.port_name)))
     if q:
         norm = q.lower().replace("-", ":").replace(".", "")
         like = f"%{norm}%"
-        stmt = stmt.where(or_(MacLearnedEntry.mac.like(like), func.lower(MacLearnedEntry.vendor).like(f"%{q.lower()}%"),
-                              func.lower(Switch.hostname).like(f"%{q.lower()}%")))
+        text_like = f"%{q.lower()}%"
+        stmt = stmt.where(or_(MacLearnedEntry.mac.like(like), func.lower(MacLearnedEntry.vendor).like(text_like),
+                              func.lower(Switch.hostname).like(text_like),
+                              func.lower(SwitchPort.faceplate_label).like(text_like)))
     if switch_id:
         stmt = stmt.where(MacLearnedEntry.switch_id == switch_id)
     if vlan_id:
@@ -220,10 +225,10 @@ def devices(q: str | None = None, switch_id: int | None = None, vlan_id: int | N
     rows = db.execute(stmt.order_by(MacLearnedEntry.last_seen.desc()).offset((page - 1) * page_size).limit(page_size)).all()
     nb = {(n.switch_id, n.local_port): n for n in db.execute(select(SwitchNeighbor)).scalars()}
     items = []
-    for m, host, sim in rows:
+    for m, host, sim, label in rows:
         n = nb.get((m.switch_id, m.port_name))
         items.append({"mac": m.mac, "vlan_id": m.vlan_id, "switch_id": m.switch_id, "hostname": host,
-                      "is_simulated": sim, "port": m.port_name, "vendor": m.vendor, "first_seen": m.first_seen,
+                      "is_simulated": sim, "port": m.port_name, "faceplate_label": label or "", "vendor": m.vendor, "first_seen": m.first_seen,
                       "last_seen": m.last_seen, "active": m.active,
                       "lldp": {"system_name": n.system_name, "remote_port": n.remote_port} if n else None})
     return {"items": items, "total": total, "page": page, "page_size": page_size}

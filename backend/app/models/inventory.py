@@ -117,6 +117,9 @@ class SwitchPort(Base):
     name: Mapped[str] = mapped_column(String(32))  # AOS-S port id, e.g. "1", "25", "Trk1"
     port_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str] = mapped_column(String(255), default="")
+    # Patch-panel / wall-jack label. Kept in the application only (never written to the switch, never touched by
+    # polling).
+    faceplate_label: Mapped[str] = mapped_column(String(32), default="", server_default="")
     port_type: Mapped[str] = mapped_column(String(32), default="")  # 100/1000T, SFP+ ...
     is_uplink: Mapped[bool] = mapped_column(Boolean, default=False)
     trunk_group: Mapped[str | None] = mapped_column(String(16), nullable=True)

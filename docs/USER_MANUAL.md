@@ -49,6 +49,11 @@ site or group, or search. Open a switch to see its tabs:
   capabilities.
 * **Ports**: a front-panel view and a table with link state, speed, VLANs, PoE and errors. Admins can enable or
   disable a port, change its description, speed/duplex or VLANs.
+* **Faceplate label**: on the Ports tab, the column between Port and Description holds the label of the
+  patch-panel port or wall jack the switch port is cabled to (for example `PP1-03`). Super Admins and Admins can
+  edit it with "edit". It is stored in the application only and is never written to the switch, so it needs no
+  change job or approval. Polling does not change it, every edit is in the audit log, and you can search for it on
+  the Ports tab and in Connected devices.
 * **VLANs**, **PoE**: per-switch VLAN membership and per-port power.
 * **Devices**: MAC addresses learned on each port, with vendor names.
 * **Neighbours**: LLDP neighbours.

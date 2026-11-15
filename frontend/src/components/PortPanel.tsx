@@ -35,7 +35,7 @@ function PortBox({ p, selected, onClick }: { p: Port; selected: boolean; onClick
   const st = portState(p);
   const delivering = p.poe && (p.poe.power_drawn_w || 0) > 0;
   const title = [
-    `Port ${p.name}${p.description ? ` – ${p.description}` : ""}`,
+    `Port ${p.name}${p.faceplate_label ? ` [${p.faceplate_label}]` : ""}${p.description ? ` – ${p.description}` : ""}`,
     STATE_LABEL[st],
     p.oper_up && p.speed_mbps ? `${p.speed_mbps >= 1000 ? p.speed_mbps / 1000 + " Gbps" : p.speed_mbps + " Mbps"} ${p.duplex || ""}` : "",
     `VLAN ${p.untagged_vlan ?? "–"}${p.tagged_vlans.length ? ` (+tagged ${p.tagged_vlans.join(",")})` : ""}`,

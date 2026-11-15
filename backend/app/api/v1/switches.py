@@ -397,6 +397,38 @@ def ports(switch_id: int, user: User = Depends(require(P.PORT_VIEW)), db: Sessio
     return out
 
 
+FACEPLATE_RE = r"^[A-Za-z0-9 _.,:/()#@+\-]{0,32}$"
+
+
+class FaceplateIn(BaseModel):
+    faceplate_label: str = Field(max_length=32, pattern=FACEPLATE_RE)
+
+    @field_validator("faceplate_label")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+
+@router.put("/{switch_id}/ports/{port_name}/faceplate-label")
+def set_faceplate_label(switch_id: int, port_name: str, body: FaceplateIn,
+                        user: User = Depends(require(P.SWITCH_MANAGE)), db: Session = Depends(get_db)) -> dict:
+    """Assign the patch-panel / wall-jack label of a port. Stored in the application only; nothing is sent to the
+    switch, so no change job or approval is involved."""
+    sw = _get(db, switch_id)
+    port = db.execute(select(SwitchPort).where(SwitchPort.switch_id == sw.id, SwitchPort.name == port_name)
+                      ).scalar_one_or_none()
+    if port is None:
+        raise not_found("Port")
+    old = port.faceplate_label or ""
+    if old != body.faceplate_label:
+        port.faceplate_label = body.faceplate_label
+        audit.record(db, action="port.faceplate_label", category="operational", actor=user, target_type="port",
+                     target_id=f"{sw.id}:{port.name}", switch_id=sw.id,
+                     details={"port": port.name, "old": old, "new": body.faceplate_label})
+        db.commit()
+    return {"port": port.name, "faceplate_label": port.faceplate_label}
+
+
 @router.get("/{switch_id}/vlans")
 def switch_vlans(switch_id: int, user: User = Depends(require(P.VLAN_VIEW)), db: Session = Depends(get_db)) -> list[dict]:
     sw = _get(db, switch_id)

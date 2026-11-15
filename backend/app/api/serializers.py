@@ -43,7 +43,7 @@ def port_out(p: SwitchPort, poe: dict | None = None, macs: list[dict] | None = N
              neighbors: list[dict] | None = None) -> dict:
     return {
         "id": p.id, "name": p.name, "if_index": p.if_index, "port_number": p.port_number,
-        "description": p.description, "port_type": p.port_type, "is_uplink": p.is_uplink,
+        "description": p.description, "faceplate_label": p.faceplate_label or "", "port_type": p.port_type, "is_uplink": p.is_uplink,
         "trunk_group": p.trunk_group, "admin_up": p.admin_up, "oper_up": p.oper_up, "speed_mbps": p.speed_mbps,
         "duplex": p.duplex, "config_mode": p.config_mode, "untagged_vlan": p.untagged_vlan,
         "tagged_vlans": p.tagged_vlans or [], "in_bps": p.in_bps, "out_bps": p.out_bps, "in_errors": p.in_errors,

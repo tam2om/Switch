@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RangePicker, TimeChart, chartColors } from "@/components/Charts";
 import type { ChangeRequest } from "@/components/ChangeDialog";
 import { PortPanel, portState } from "@/components/PortPanel";
-import { Badge, Button, Card, Empty, Loadable, Modal, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Badge, Button, Card, Empty, Input, Loadable, Modal, StatusBadge, Table, Td, Th, useToast } from "@/components/ui";
+import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fmtBps, fmtNum, relTime } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
@@ -12,12 +13,83 @@ import type { Port, SwitchDetail } from "@/lib/types";
 
 type Range = "1h" | "6h" | "24h" | "7d" | "30d";
 
+const FACEPLATE_RE = /^[A-Za-z0-9 _.,:/()#@+-]{0,32}$/;
+
+/** Inline editor for a port's faceplate label (application data only; nothing is sent to the switch). */
+export function FaceplateLabel({ switchId, port, canEdit, onSaved }: { switchId: number; port: Port; canEdit: boolean; onSaved: () => void }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(port.faceplate_label);
+  const [busy, setBusy] = useState(false);
+  const valid = FACEPLATE_RE.test(value);
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {port.faceplate_label ? <span className="font-medium">{port.faceplate_label}</span> : <span className="text-muted">–</span>}
+        {canEdit && (
+          <button
+            type="button"
+            className="rounded px-1 text-xs text-muted hover:text-accent"
+            aria-label={`Edit faceplate label of port ${port.name}`}
+            onClick={() => {
+              setValue(port.faceplate_label);
+              setEditing(true);
+            }}
+          >
+            edit
+          </button>
+        )}
+      </span>
+    );
+  }
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(`/switches/${switchId}/ports/${encodeURIComponent(port.name)}/faceplate-label`, { method: "PUT", body: { faceplate_label: value.trim() } });
+      toast("ok", `Faceplate label of port ${port.name} saved`);
+      setEditing(false);
+      onSaved();
+    } catch (e) {
+      toast("bad", errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="flex items-center gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) void save();
+      }}
+    >
+      <Input
+        autoFocus
+        className="h-7 w-28 px-1.5 text-xs"
+        maxLength={32}
+        aria-label={`Faceplate label of port ${port.name}`}
+        aria-invalid={!valid}
+        placeholder="e.g. PP1-03"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
+      />
+      <Button size="sm" type="submit" disabled={busy || !valid}>
+        Save
+      </Button>
+      <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(false)}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
 function PortHistory({ sw, port, onClose }: { sw: SwitchDetail; port: Port | null; onClose: () => void }) {
   const [range, setRange] = useState<Range>("6h");
   const { data } = useApi<{ points: Record<string, unknown>[] }>(port ? `/metrics/switches/${sw.id}/ports/${port.if_index}` : null, { range });
   if (!port) return null;
   return (
-    <Modal open title={`Port ${port.name}${port.description ? ` – ${port.description}` : ""}`} onClose={onClose} wide>
+    <Modal open title={`Port ${port.name}${port.faceplate_label ? ` [${port.faceplate_label}]` : ""}${port.description ? ` – ${port.description}` : ""}`} onClose={onClose} wide>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge status={port.oper_up ? "online" : "offline"} />
@@ -73,6 +145,7 @@ export function PortsTab({ sw, initialPort, onChange }: { sw: SwitchDetail; init
   const [selected, setSelected] = useState<Set<string>>(new Set(initialPort ? [initialPort] : []));
   const [detail, setDetail] = useState<Port | null>(null);
   const [filter, setFilter] = useState<"all" | "up" | "down" | "errors" | "poe">("all");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (initialPort && data) setDetail(data.find((p) => p.name === initialPort) || null);
@@ -92,12 +165,15 @@ export function PortsTab({ sw, initialPort, onChange }: { sw: SwitchDetail; init
   const canVlan = can("vlan.manage");
   const canPoe = can("poe.manage");
   const canSec = can("netsec.manage");
+  const canLabel = can("switch.manage");
   const anyPoe = sel.some((p) => p.poe);
 
   const req = (operation: string, params: Record<string, unknown>, locked: string[], title?: string) =>
     onChange({ operation, switchIds: [sw.id], params, lockedParams: locked, title });
 
+  const needle = search.trim().toLowerCase();
   const rows = (data || []).filter((p) => {
+    if (needle && ![p.name, p.faceplate_label, p.description].some((v) => v.toLowerCase().includes(needle))) return false;
     const st = portState(p);
     if (filter === "up") return p.oper_up;
     if (filter === "down") return !p.oper_up;
@@ -181,12 +257,15 @@ export function PortsTab({ sw, initialPort, onChange }: { sw: SwitchDetail; init
             title="Ports"
             bodyClassName="p-0"
             actions={
+              <div className="flex flex-wrap items-center gap-2">
+              <Input className="h-7 w-48 text-xs" placeholder="Port, faceplate label or description" aria-label="Search ports" value={search} onChange={(e) => setSearch(e.target.value)} />
               <div className="flex items-center rounded-md border border-line p-0.5 text-xs" role="group" aria-label="Port filter">
                 {(["all", "up", "down", "errors", "poe"] as const).map((f) => (
                   <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)} className={filter === f ? "rounded bg-accent px-2 py-1 text-accent-fg" : "rounded px-2 py-1 text-muted"}>
                     {f === "poe" ? "PoE active" : f}
                   </button>
                 ))}
+              </div>
               </div>
             }
           >
@@ -198,6 +277,7 @@ export function PortsTab({ sw, initialPort, onChange }: { sw: SwitchDetail; init
                   <tr>
                     <Th className="w-8" />
                     <Th>Port</Th>
+                    <Th>Faceplate label</Th>
                     <Th>Description</Th>
                     <Th>Status</Th>
                     <Th>Speed</Th>
@@ -224,6 +304,9 @@ export function PortsTab({ sw, initialPort, onChange }: { sw: SwitchDetail; init
                         </button>
                         {p.is_uplink && <Badge tone="info">uplink</Badge>}
                         {p.trunk_group && <Badge>{p.trunk_group}</Badge>}
+                      </Td>
+                      <Td className="whitespace-nowrap">
+                        <FaceplateLabel key={`${p.id}-${p.faceplate_label}`} switchId={sw.id} port={p} canEdit={canLabel} onSaved={() => mutate()} />
                       </Td>
                       <Td className="max-w-48 truncate">{p.description || <span className="text-muted">–</span>}</Td>
                       <Td>
