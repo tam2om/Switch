@@ -22,7 +22,8 @@ a privileged administrative system. The threats addressed are:
 * The API trusts `X-Forwarded-For` only from Nginx's fixed address, so clients cannot spoof their source address
   to pass the allow-list or to dodge rate limits. Uvicorn's own proxy-header handling is turned off.
 * HTTPS only (TLS 1.2/1.3); port 80 only redirects. HSTS, `X-Frame-Options: DENY`, `nosniff`,
-  `Referrer-Policy: no-referrer`, a restrictive Permissions-Policy and a Content-Security-Policy are set by Nginx.
+  `Referrer-Policy: no-referrer` and a restrictive Permissions-Policy are set by Nginx. Pages get a per-request Content-Security-Policy with a
+  script nonce (no inline scripts allowed); API responses get `default-src 'none'`.
 * The interactive API documentation is disabled in production (`ANM_API_DOCS_ENABLED=false`).
 
 ### Authentication
@@ -103,7 +104,7 @@ a privileged administrative system. The threats addressed are:
 
 ## Known residual risks
 
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md): CSP allows inline scripts (required by Next.js without nonces),
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md): CSP still allows inline styles (scripts need a per-request nonce),
 the MinIO image is a community build, and device behaviour has not been validated on real hardware yet.
 
 ## Reporting a vulnerability

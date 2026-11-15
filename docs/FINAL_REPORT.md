@@ -13,7 +13,7 @@ It must not manage production switches until the hardware validation procedure h
 |---|---|
 | Backend (pytest, PostgreSQL + TimescaleDB + Redis, simulator) | 125 passed |
 | Backend lint (ruff) | clean |
-| Frontend unit tests (Vitest) | 22 passed |
+| Frontend unit tests (Vitest) | 24 passed |
 | Frontend type check and production build | clean, 25 routes |
 | End-to-end (Playwright, 10 scenarios) on the dev stack | 10 passed |
 | End-to-end on the Docker Compose stack through Nginx/TLS | 10 passed (5 re-run after the login rate limit, by design, throttled the suite's rapid sign-ins) |
@@ -79,7 +79,6 @@ It must not manage production switches until the hardware validation procedure h
 ## 4. Deferred or out of scope
 
 * Arabic language and RTL layout: removed from scope by the owner.
-* Nonce-based Content-Security-Policy (currently allows inline scripts and styles).
 * Switch reload and firmware upgrade from the application (not requested; restore needs a manual reload).
 * Third-party penetration test, accessibility audit with assistive technology, UI load testing.
 

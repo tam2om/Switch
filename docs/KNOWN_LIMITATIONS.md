@@ -34,9 +34,9 @@ Listed honestly so nobody assumes more than has been shown.
   community build (`pgsty/minio:RELEASE.2026-08-04T00-00-00Z`). Before production, either vet and mirror that image
   in your registry (set `MINIO_IMAGE`), or point the application at an existing S3-compatible service. Backup
   objects are encrypted by the application, so the storage service never sees plaintext.
-* **Content-Security-Policy** allows `'unsafe-inline'` scripts and styles. Next.js inlines bootstrap scripts and the
-  theme is applied before first paint; nonce-based CSP was not implemented. Other CSP directives are strict
-  (`default-src 'self'`, no framing, no external connections).
+* **Content-Security-Policy**: scripts need a per-request nonce (`'strict-dynamic'`, no inline scripts), but
+  styles still allow `'unsafe-inline'` because the charts and layout use inline style attributes. Styles cannot
+  run code.
 * The HTTP→HTTPS redirect on port 80 uses the request host without a port; if HTTPS is published on a port other
   than 443, users must use the HTTPS address directly.
 * Rate limits are per client address. Many users behind one NAT address share the login limit (10 per minute per

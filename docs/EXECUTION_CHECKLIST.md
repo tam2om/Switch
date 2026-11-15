@@ -37,8 +37,9 @@ Status legend: ✅ done and tested · ⏳ implemented, awaiting physical switch 
 
 ## Stage 6: testing and hardening
 - ✅ Backend: 125 tests pass (pytest) including all four roles and a 100-switch simulated workload; ruff clean.
-- ✅ Frontend: 22 unit tests (Vitest), TypeScript clean, production build succeeds.
+- ✅ Frontend: 24 unit tests (Vitest), TypeScript clean, production build succeeds.
 - ✅ End to end: 10 Playwright scenarios pass against the dev stack and against the Compose stack through Nginx.
+- ✅ CI (GitHub Actions): backend, frontend, end-to-end and Compose deploy/backup/restore jobs on every push.
 - ✅ Deployment and recovery: Compose stack started from scratch; backup.sh and restore.sh round trip tested.
 - ✅ Dependency audit: `npm audit` 0 vulnerabilities; `pip-audit` no known vulnerabilities.
 
