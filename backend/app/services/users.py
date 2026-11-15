@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -39,12 +41,18 @@ def _assert_can_manage(actor: User, target: User) -> None:
         raise forbidden("You cannot manage users with this role")
 
 
+USERNAME_RE = re.compile(r"[a-z0-9][a-z0-9_.\-]{2,63}")
+
+
 def create_user(db: Session, actor: User | None, *, username: str, full_name: str, email: str | None, role: str,
                 password: str, must_change_password: bool = True) -> User:
     """actor=None means the local CLI (first-run setup / recovery), which requires shell access to the server."""
     if actor is not None and not can_assign_role(actor.role, role):
         raise forbidden("You cannot assign this role")
     username = username.strip().lower()
+    if not USERNAME_RE.fullmatch(username):
+        raise bad_request("Username must be 3-64 characters of letters, digits, '.', '_' or '-' and start with a "
+                          "letter or digit", "invalid_username")
     if db.execute(select(User).where(func.lower(User.username) == username)).first():
         raise conflict("A user with this username already exists", "username_taken")
     if email and db.execute(select(User).where(func.lower(User.email) == email.lower())).first():

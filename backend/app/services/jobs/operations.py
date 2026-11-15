@@ -8,7 +8,7 @@ execution through the driver, and verification by reading the device state back.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
@@ -131,7 +131,7 @@ class PortDescriptionParams(BaseModel):
 
 class PortSpeedParams(BaseModel):
     port: PortName
-    mode: str
+    mode: str = Field(json_schema_extra={"enum": sorted(cli.SPEED_MODES)})
 
     @field_validator("port")
     @classmethod
@@ -188,8 +188,8 @@ class VlanDeleteParams(BaseModel):
 class PoeParams(BaseModel):
     ports: list[PortName] = Field(min_length=1, max_length=48)
     enabled: bool | None = None
-    priority: str | None = None
-    allocation_method: str | None = None
+    priority: str | None = Field(default=None, json_schema_extra={"enum": sorted(cli.POE_PRIORITIES)})
+    allocation_method: str | None = Field(default=None, json_schema_extra={"enum": sorted(cli.POE_ALLOC)})
     allocated_power_w: float | None = Field(default=None, ge=1, le=30)
     _v = field_validator("ports")(_ports)
 
@@ -227,9 +227,9 @@ class SntpParams(BaseModel):
 
 class SnmpUserParams(BaseModel):
     username: str
-    auth_password: str
-    priv_password: str
-    access: str = "ro"
+    auth_password: str = Field(json_schema_extra={"format": "password", "writeOnly": True})
+    priv_password: str = Field(json_schema_extra={"format": "password", "writeOnly": True})
+    access: Literal["ro", "rw"] = "ro"
 
     @model_validator(mode="after")
     def _c(self) -> SnmpUserParams:
@@ -240,7 +240,7 @@ class SnmpUserParams(BaseModel):
 class AuthorizedManagerParams(BaseModel):
     network: str
     mask: str
-    access: str = "manager"
+    access: Literal["manager", "operator"] = "manager"
 
     @model_validator(mode="after")
     def _c(self) -> AuthorizedManagerParams:
@@ -250,9 +250,9 @@ class AuthorizedManagerParams(BaseModel):
 
 class PortSecurityParams(BaseModel):
     ports: list[PortName] = Field(min_length=1, max_length=48)
-    learn_mode: str = "continuous"
+    learn_mode: Literal["continuous", "static", "configured", "port-access", "limited-continuous"] = "continuous"
     address_limit: int = Field(default=1, ge=1, le=64)
-    action: str = "send-alarm"
+    action: Literal["none", "send-alarm", "send-disable"] = "send-alarm"
     _v = field_validator("ports")(_ports)
 
     @model_validator(mode="after")
@@ -285,9 +285,9 @@ class DhcpSnoopingParams(BaseModel):
 
 
 class AaaServerParams(BaseModel):
-    protocol: str  # radius | tacacs
+    protocol: Literal["radius", "tacacs"]
     host: str
-    key: str
+    key: str = Field(json_schema_extra={"format": "password", "writeOnly": True})
 
     @model_validator(mode="after")
     def _c(self) -> AaaServerParams:

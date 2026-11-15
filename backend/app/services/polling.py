@@ -84,9 +84,9 @@ def _mark_success(db: Session, sw: Switch, latency_ms: float | None = None) -> N
     was_offline = sw.status == "offline"
     sw.poll_failures = 0
     sw.last_poll_at = sw.last_success_at = utcnow()
+    sw.status_reason = ""
     if sw.status in ("offline", "unknown", "warning"):
         sw.status = "online"
-        sw.status_reason = ""
     if was_offline:
         alerts.event(db, type="switch.recovered", severity="info", switch_id=sw.id,
                      message=f"{sw.hostname} ({sw.mgmt_ip}) is reachable again")

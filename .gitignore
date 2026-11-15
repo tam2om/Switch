@@ -20,3 +20,4 @@ frontend/playwright-report/
 deploy/certs/*.key
 deploy/certs/*.pem
 deploy/certs/*.crt
+dump.rdb

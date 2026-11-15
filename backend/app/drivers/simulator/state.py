@@ -276,12 +276,18 @@ class SimStore:
     def __init__(self) -> None:
         self._mem: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._init_lock = threading.Lock()
         self._redis: Any = None
         self._redis_checked = False
 
     def _r(self) -> Any:
-        if not self._redis_checked:
-            self._redis_checked = True
+        if self._redis_checked:
+            return self._redis
+        # Polling runs in thread pools: initialise once under the lock so no thread sees a half-initialised store
+        # (which previously made early lookups fall back to the empty in-memory dict and report timeouts).
+        with self._init_lock:
+            if self._redis_checked:
+                return self._redis
             try:
                 from app.core.config import get_settings
 
@@ -294,6 +300,7 @@ class SimStore:
                     self._redis = client
             except Exception:  # noqa: BLE001
                 self._redis = None
+            self._redis_checked = True
         return self._redis
 
     def get(self, ip: str) -> SimSwitch | None:

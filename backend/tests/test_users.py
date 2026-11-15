@@ -62,8 +62,8 @@ def test_no_self_escalation_or_self_disable(client, db):
     assert client.patch(f"/api/v1/users/{me.id}", json={"is_active": False}).status_code == 403
     assert client.delete(f"/api/v1/users/{me.id}").status_code == 403
     client.post("/api/v1/auth/logout")
-    viewer = make_user(db, "viewer", "vv")
-    login(client, "vv")
+    viewer = make_user(db, "viewer", "viewer-vv")
+    login(client, "viewer-vv")
     assert client.patch(f"/api/v1/users/{viewer.id}", json={"role": "super_admin"}).status_code == 403
 
 
@@ -122,3 +122,15 @@ def test_user_activity_and_last_login(client, db):
     assert d["last_login_at"] is not None
     acts = client.get(f"/api/v1/users/{u.id}/activity").json()
     assert any(a["action"] == "auth.login" for a in acts)
+
+
+def test_cli_and_api_reject_invalid_usernames(db):
+    import pytest as _pytest
+
+    from app.core.errors import AppError
+    from app.services.users import create_user
+
+    for bad in ("--help", "ab", "-x-admin", "has space", "x" * 65):
+        with _pytest.raises(AppError) as exc:
+            create_user(db, None, username=bad, full_name="", email=None, role="viewer", password=PASSWORD)
+        assert exc.value.detail["code"] == "invalid_username"

@@ -68,8 +68,8 @@ def test_unauthenticated_is_rejected(client):
 
 def test_viewer_cannot_change_ports_or_ack(client, db, sim_switches):
     ids = sim_switches(1)
-    make_user(db, "viewer", "v1")
-    login(client, "v1")
+    make_user(db, "viewer", "viewer1")
+    login(client, "viewer1")
     r = client.post("/api/v1/jobs", json={"operation": "port_admin", "switch_ids": ids,
                                           "params": {"ports": ["3"], "enabled": False}})
     assert r.status_code == 403
@@ -78,8 +78,8 @@ def test_viewer_cannot_change_ports_or_ack(client, db, sim_switches):
 
 def test_monitor_cannot_execute_jobs(client, db, sim_switches):
     ids = sim_switches(1)
-    make_user(db, "monitor", "m1")
-    login(client, "m1")
+    make_user(db, "monitor", "monitor1")
+    login(client, "monitor1")
     for op, params in [("port_admin", {"ports": ["3"], "enabled": False}),
                        ("vlan_create", {"vlan_id": 77, "name": "X"}),
                        ("poe_config", {"ports": ["3"], "enabled": False}),
@@ -89,8 +89,8 @@ def test_monitor_cannot_execute_jobs(client, db, sim_switches):
 
 
 def test_admin_cannot_approve_or_touch_security_settings(client, db):
-    make_user(db, "admin", "a1")
-    login(client, "a1")
+    make_user(db, "admin", "admin1")
+    login(client, "admin1")
     assert client.post("/api/v1/jobs/1/approve", json={}).status_code == 403
     assert client.put("/api/v1/settings/changes.allow_self_approval", json={"value": True}).status_code == 403
     assert client.get("/api/v1/credentials").status_code == 403

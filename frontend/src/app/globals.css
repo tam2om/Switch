@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Colour tokens. Dark is the default theme; .light on <html> switches to light. */
+:root {
+  --c-bg: #0b0f14;
+  --c-panel: #121821;
+  --c-panel-2: #18202b;
+  --c-fg: #e6edf3;
+  --c-muted: #8b98a8;
+  --c-line: #243040;
+  --c-accent: #ff8300;
+  --c-accent-fg: #111111;
+  --c-ok: #2fbf71;
+  --c-warn: #f2b134;
+  --c-bad: #f0564a;
+  --c-info: #4aa8ff;
+  --c-sim: #b57cff;
+  color-scheme: dark;
+}
+
+:root.light {
+  --c-bg: #f4f6f9;
+  --c-panel: #ffffff;
+  --c-panel-2: #eef1f5;
+  --c-fg: #17202b;
+  --c-muted: #5b6878;
+  --c-line: #d6dce4;
+  --c-accent: #d96d00;
+  --c-accent-fg: #ffffff;
+  --c-ok: #16924f;
+  --c-warn: #a86d00;
+  --c-bad: #c9302c;
+  --c-info: #1f6fc7;
+  --c-sim: #7a3fd1;
+  color-scheme: light;
+}
+
+@theme {
+  --color-bg: var(--c-bg);
+  --color-panel: var(--c-panel);
+  --color-panel-2: var(--c-panel-2);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-line: var(--c-line);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --color-bad: var(--c-bad);
+  --color-info: var(--c-info);
+  --color-sim: var(--c-sim);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  background: var(--c-bg);
+  color: var(--c-fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+* {
+  border-color: var(--c-line);
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  background: var(--c-panel-2);
+  color: var(--c-fg);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

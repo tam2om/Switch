@@ -55,7 +55,8 @@ def get_backup(backup_id: int, user: User = Depends(require(P.BACKUP_VIEW)), db:
     b = db.get(ConfigBackup, backup_id)
     if b is None:
         raise not_found("Backup")
-    return backup_out(b)
+    sw = db.get(Switch, b.switch_id)
+    return backup_out(b, sw.hostname if sw else None)
 
 
 @router.get("/{backup_id}/content", response_class=PlainTextResponse)
