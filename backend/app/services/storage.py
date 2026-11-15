@@ -15,7 +15,14 @@ from typing import Protocol
 from app.core.config import get_settings
 from app.core.crypto import get_keyring
 
-_KEY_RE = re.compile(r"^[A-Za-z0-9/_.\-]{1,255}$")
+_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-][A-Za-z0-9/_.\-]{0,254}$")
+
+
+def validate_key(key: str) -> str:
+    """Object keys are relative paths of safe characters (no leading slash, no "..")."""
+    if not _KEY_RE.match(key) or ".." in key.split("/"):
+        raise ValueError("invalid storage key")
+    return key
 
 
 class ObjectStore(Protocol):
@@ -24,6 +31,8 @@ class ObjectStore(Protocol):
     def get(self, key: str) -> bytes: ...
 
     def delete(self, key: str) -> None: ...
+
+    def keys(self) -> list[str]: ...
 
     def health(self) -> dict: ...
 
@@ -34,9 +43,7 @@ class FilesystemStore:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _path(self, key: str) -> Path:
-        if not _KEY_RE.match(key) or ".." in key:
-            raise ValueError("invalid storage key")
-        return self.root / key
+        return self.root / validate_key(key)
 
     def put(self, key: str, data: bytes) -> None:
         p = self._path(key)
@@ -57,6 +64,9 @@ class FilesystemStore:
         if p.exists():
             p.unlink()
 
+    def keys(self) -> list[str]:
+        return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*") if p.is_file() and p.suffix != ".tmp")
+
     def health(self) -> dict:
         return {"backend": "filesystem", "ok": self.root.exists() and os.access(self.root, os.W_OK)}
 
@@ -73,7 +83,7 @@ class MinioStore:  # pragma: no cover - exercised in the docker-compose deployme
             self.client.make_bucket(self.bucket)
 
     def put(self, key: str, data: bytes) -> None:
-        self.client.put_object(self.bucket, key, io.BytesIO(data), length=len(data),
+        self.client.put_object(self.bucket, validate_key(key), io.BytesIO(data), length=len(data),
                                content_type="application/octet-stream")
 
     def get(self, key: str) -> bytes:
@@ -86,6 +96,9 @@ class MinioStore:  # pragma: no cover - exercised in the docker-compose deployme
 
     def delete(self, key: str) -> None:
         self.client.remove_object(self.bucket, key)
+
+    def keys(self) -> list[str]:
+        return sorted(o.object_name for o in self.client.list_objects(self.bucket, recursive=True))
 
     def health(self) -> dict:
         try:

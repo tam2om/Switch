@@ -241,3 +241,16 @@ def test_rest_cli_result_decoding():
                                          "result_base64_encoded": base64.b64encode(b"hello").decode()})
 
     assert RestClient("10.0.0.1", "u", "p", transport=httpx.MockTransport(handler)).cli("show version") == "hello"
+
+
+def test_hardware_validation_harness_on_simulator_is_not_evidence(db, sim_switches):
+    from app.services import hwvalidate
+
+    report = hwvalidate.run_for_switch(db, sim_switches(1)[0])
+    assert report["read_only"] is True
+    assert report["simulated"] is True
+    assert report["valid_as_hardware_evidence"] is False
+    assert report["summary"]["failed"] == 0, [c for c in report["checks"] if not c["ok"]]
+    names = {c["check"] for c in report["checks"]}
+    assert {"system", "ports", "vlans", "poe_ports", "lldp", "running_config"} <= names
+    assert report["device"]["product"] == "JL356A"

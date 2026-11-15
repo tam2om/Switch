@@ -127,3 +127,39 @@ def test_storage_key_traversal_rejected(tmp_path):
     s = storage.FilesystemStore(str(tmp_path))
     with pytest.raises(ValueError):
         s.put("../../etc/passwd", b"x")
+
+
+def test_storage_keys_are_relative_and_safe(tmp_path):
+    import pytest
+
+    from app.services.storage import FilesystemStore
+
+    store = FilesystemStore(str(tmp_path))
+    store.put("1/a.bin", b"x")
+    assert store.keys() == ["1/a.bin"]
+    for bad in ["/etc/passwd", "../x", "a/../../x", "a b"]:
+        with pytest.raises(ValueError):
+            store.put(bad, b"x")
+
+
+def test_cli_export_import_objects_roundtrip(tmp_path, monkeypatch, capsys):
+    import io
+    import sys
+
+    from app import cli
+    from app.services import storage
+
+    src = storage.FilesystemStore(str(tmp_path / "src"))
+    src.put("3/backup-1.enc", b"cipher-1")
+    src.put("4/backup-2.enc", b"cipher-2")
+    monkeypatch.setattr(storage, "get_store", lambda: src)
+    out = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(out))
+    assert cli.main(["export-objects"]) == 0
+    sys.stdout.flush()
+    dst = storage.FilesystemStore(str(tmp_path / "dst"))
+    monkeypatch.setattr(storage, "get_store", lambda: dst)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(out.getvalue())))
+    assert cli.main(["import-objects"]) == 0
+    assert dst.keys() == ["3/backup-1.enc", "4/backup-2.enc"]
+    assert dst.get("4/backup-2.enc") == b"cipher-2"

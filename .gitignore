@@ -21,3 +21,5 @@ deploy/certs/*.key
 deploy/certs/*.pem
 deploy/certs/*.crt
 dump.rdb
+deploy/nginx/allowed-networks.conf
+/anm-backups/

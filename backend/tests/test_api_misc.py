@@ -210,3 +210,10 @@ def test_sql_injection_attempts_are_inert(client, db, sim_switches):
 def test_openapi_available(client):
     spec = client.get("/api/openapi.json").json()
     assert len(spec["paths"]) > 80
+
+
+def test_api_docs_disabled_by_default(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.delenv("ANM_API_DOCS_ENABLED", raising=False)
+    assert Settings().api_docs_enabled is False

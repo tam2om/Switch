@@ -46,7 +46,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Aruba Network Manager API", version=VERSION,
                   description="Internal API for centralised management of Aruba AOS-Switch fleets. "
                               "All endpoints require an authenticated session except /auth/login and /health.",
-                  docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+                  docs_url="/api/docs" if s.api_docs_enabled else None, redoc_url=None,
+                  openapi_url="/api/openapi.json" if s.api_docs_enabled else None)
 
     if s.cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in s.cors_origins.split(",") if o.strip()],

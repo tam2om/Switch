@@ -59,6 +59,8 @@ class Settings(BaseSettings):
 
     # Demo / simulator mode. Simulated switches are always labelled in the UI and API.
     simulator_enabled: bool = False
+    # Interactive API docs (Swagger UI loads assets from a CDN). Off by default; enable on development systems.
+    api_docs_enabled: bool = False
 
     smtp_host: str = ""
     smtp_port: int = 25

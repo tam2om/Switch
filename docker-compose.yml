@@ -1,0 +1,193 @@
+# Aruba Network Manager - production stack.
+#
+# Only Nginx publishes ports. Every other service is reachable only on the internal "anm" network.
+# Prepare the host first (see docs/DEPLOYMENT.md):
+#   ./deploy/scripts/init-secrets.sh        # writes .env with random secrets
+#   ./deploy/scripts/make-selfsigned-cert.sh anm.example.internal   # or install your CA-issued cert
+#   cp deploy/nginx/allowed-networks.conf.example deploy/nginx/allowed-networks.conf   # then restrict it
+#   docker compose up -d --build
+#   docker compose exec backend docker-entrypoint.sh cli create-superadmin <username>
+
+name: anm
+
+x-backend-env: &backend-env
+  ANM_ENVIRONMENT: production
+  ANM_DATABASE_URL: postgresql+psycopg://anm:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/anm
+  ANM_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+  ANM_ENCRYPTION_KEYS: ${ANM_ENCRYPTION_KEYS:?set ANM_ENCRYPTION_KEYS in .env}
+  ANM_SESSION_SECRET: ${ANM_SESSION_SECRET:?set ANM_SESSION_SECRET in .env}
+  ANM_STORAGE_BACKEND: minio
+  ANM_MINIO_ENDPOINT: minio:9000
+  ANM_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+  ANM_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+  ANM_MINIO_BUCKET: ${ANM_MINIO_BUCKET:-anm-config-backups}
+  ANM_MINIO_SECURE: "false"
+  ANM_COOKIE_SECURE: "true"
+  # Requests are only accepted from these client networks (checked again by Nginx).
+  ANM_ALLOWED_CLIENT_NETWORKS: ${ANM_ALLOWED_CLIENT_NETWORKS:?set ANM_ALLOWED_CLIENT_NETWORKS in .env}
+  # Only Nginx (fixed address below) may supply X-Forwarded-For. Loopback covers container health checks.
+  ANM_TRUSTED_PROXIES: ${ANM_NGINX_IP:-172.31.250.10}/32,127.0.0.1/32
+  ANM_SIMULATOR_ENABLED: ${ANM_SIMULATOR_ENABLED:-false}
+  ANM_API_DOCS_ENABLED: "false"
+  ANM_REST_VERIFY_TLS: ${ANM_REST_VERIFY_TLS:-true}
+  ANM_REST_CA_BUNDLE: ${ANM_REST_CA_BUNDLE:-}
+  ANM_SMTP_HOST: ${ANM_SMTP_HOST:-}
+  ANM_SMTP_PORT: ${ANM_SMTP_PORT:-25}
+  ANM_SMTP_STARTTLS: ${ANM_SMTP_STARTTLS:-true}
+  ANM_SMTP_USERNAME: ${ANM_SMTP_USERNAME:-}
+  ANM_SMTP_PASSWORD: ${ANM_SMTP_PASSWORD:-}
+  ANM_SMTP_FROM: ${ANM_SMTP_FROM:-anm@localhost}
+  TZ: ${TZ:-UTC}
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    image: timescale/timescaledb:2.32.0-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: anm
+      POSTGRES_USER: anm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TIMESCALEDB_TELEMETRY: "off"
+    command: ["postgres", "-c", "timescaledb.telemetry_level=off", "-c", "max_connections=200"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anm -d anm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [anm]
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --save 300 10"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [anm]
+    logging: *logging
+
+  minio:
+    # The upstream MinIO project no longer publishes container images. This is a pinned community build;
+    # see docs/KNOWN_LIMITATIONS.md. Override MINIO_IMAGE to use a mirrored or vetted image.
+    image: ${MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER: "off"
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [anm]
+    logging: *logging
+
+  backend:
+    build: ./backend
+    image: anm-backend:${ANM_VERSION:-local}
+    restart: unless-stopped
+    init: true
+    command: ["api"]
+    environment:
+      <<: *backend-env
+      ANM_API_WORKERS: ${ANM_API_WORKERS:-2}
+    volumes: [backendtmp:/var/lib/anm]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 6s
+      retries: 10
+      start_period: 40s
+    networks: [anm]
+    logging: *logging
+
+  worker:
+    image: anm-backend:${ANM_VERSION:-local}
+    restart: unless-stopped
+    init: true
+    command: ["worker"]
+    environment:
+      <<: *backend-env
+      ANM_WORKER_CONCURRENCY: ${ANM_WORKER_CONCURRENCY:-4}
+    volumes: [backendtmp:/var/lib/anm]
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [anm]
+    logging: *logging
+
+  scheduler:
+    image: anm-backend:${ANM_VERSION:-local}
+    restart: unless-stopped
+    init: true
+    command: ["scheduler"]
+    environment: *backend-env
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [anm]
+    logging: *logging
+
+  frontend:
+    build: ./frontend
+    image: anm-frontend:${ANM_VERSION:-local}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [anm]
+    logging: *logging
+
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      # Bind to a management interface address in production (e.g. "10.20.30.40:443:8443").
+      - "${ANM_HTTPS_BIND:-443}:8443"
+      - "${ANM_HTTP_BIND:-80}:8080"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ./deploy/nginx/allowed-networks.conf:/etc/nginx/allowed-networks.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      anm:
+        ipv4_address: ${ANM_NGINX_IP:-172.31.250.10}
+    logging: *logging
+
+networks:
+  anm:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${ANM_DOCKER_SUBNET:-172.31.250.0/24}
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  backendtmp:

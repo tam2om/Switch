@@ -1,0 +1,6 @@
+# Networks allowed to reach the application through Nginx. Keep in sync with ANM_ALLOWED_CLIENT_NETWORKS.
+# Copy to allowed-networks.conf and restrict to your management/IT networks.
+10.0.0.0/8      1;
+172.16.0.0/12   1;
+192.168.0.0/16  1;
+127.0.0.0/8     1;

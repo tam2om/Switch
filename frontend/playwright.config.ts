@@ -11,6 +11,8 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
     trace: "off",
+    // Self-signed certificate on a lab Compose deployment.
+    ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === "1",
     screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

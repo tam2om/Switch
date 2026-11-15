@@ -13,6 +13,7 @@ os.environ.update({
     "ANM_STORAGE_BACKEND": "filesystem",
     "ANM_STORAGE_PATH": tempfile.mkdtemp(prefix="anm-test-backups-"),
     "ANM_SIMULATOR_ENABLED": "true",
+    "ANM_API_DOCS_ENABLED": "true",
     "ANM_COOKIE_SECURE": "true",
     "ANM_LOGIN_RATE_PER_MINUTE": "1000",
     "ANM_POLL_CONCURRENCY": "8",

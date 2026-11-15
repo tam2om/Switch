@@ -6,11 +6,15 @@
   python -m app.cli seed-simulator N          # demo/test only (requires ANM_SIMULATOR_ENABLED=true)
   python -m app.cli generate-key              # print a new encryption key for ANM_ENCRYPTION_KEYS
   python -m app.cli rotate-secrets            # re-encrypt stored secrets with the active key
+  python -m app.cli hw-validate SWITCH_ID     # read-only hardware validation report (JSON) for one switch
+  python -m app.cli export-objects > f.tar    # write all stored (still encrypted) backup objects as a tar stream
+  python -m app.cli import-objects < f.tar    # restore objects from such a tar stream (replaces same-named objects)
 """
 
 from __future__ import annotations
 
 import getpass
+import io
 import os
 import sys
 
@@ -116,6 +120,46 @@ def cmd_rotate() -> int:
     return 0
 
 
+def cmd_export_objects() -> int:
+    import tarfile
+
+    from app.services.storage import get_store
+
+    store = get_store()
+    n = 0
+    with tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as tar:
+        for key in store.keys():
+            data = store.get(key)
+            info = tarfile.TarInfo(key)
+            info.size = len(data)
+            info.mode = 0o600
+            tar.addfile(info, io.BytesIO(data))
+            n += 1
+    print(f"Exported {n} objects.", file=sys.stderr)
+    return 0
+
+
+def cmd_import_objects() -> int:
+    import tarfile
+
+    from app.services.storage import get_store
+
+    store = get_store()
+    n = 0
+    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            f = tar.extractfile(member)
+            if f is None:
+                continue
+            # Keys are validated by the store (no absolute paths or "..").
+            store.put(member.name.removeprefix("./"), f.read())
+            n += 1
+    print(f"Imported {n} objects.", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
@@ -136,6 +180,19 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd == "rotate-secrets":
         return cmd_rotate()
+    if cmd == "hw-validate" and len(argv) == 2:
+        import json
+
+        from app.services import hwvalidate
+
+        with _db() as db:
+            report = hwvalidate.run_for_switch(db, int(argv[1]))
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if report["summary"]["failed"] == 0 else 4
+    if cmd == "export-objects":
+        return cmd_export_objects()
+    if cmd == "import-objects":
+        return cmd_import_objects()
     print(__doc__)
     return 1
 

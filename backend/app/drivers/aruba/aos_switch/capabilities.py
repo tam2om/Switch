@@ -4,8 +4,9 @@ Each capability records which protocol/resource implements it and the evidence l
 
 * "documented"  - described in the HPE/Aruba AOS-Switch 16.11 REST API / MIB / CLI reference, NOT yet confirmed
                   on a physical Aruba 2540 running YC.16.11.0018 by this project.
-* "verified"    - confirmed against a physical device (set only by the hardware validation harness, see
-                  docs/HARDWARE_VALIDATION.md). Nothing is "verified" in the shipped registry.
+* "verified"    - confirmed against a physical device: set by a reviewer only after a passing report from the
+                  read-only harness (`python -m app.cli hw-validate`) plus the change tests in
+                  docs/HARDWARE_VALIDATION.md. Nothing is "verified" in the shipped registry.
 * "unsupported" - known not to be available; the operation is refused or a validated fallback is used.
 
 At runtime the driver additionally probes each REST resource on every switch and stores the result in
