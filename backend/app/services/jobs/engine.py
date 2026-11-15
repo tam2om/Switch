@@ -333,6 +333,10 @@ def _run_target(result_id: int) -> str:
             log.warning("change lock for switch %s already released", switch_id)
 
 
+# Errors that mean a credential was refused or is missing, not that the device or the change is at fault.
+CREDENTIAL_ERRORS = {"auth_failed", "no_credentials", "host_key_untrusted", "host_key_mismatch"}
+
+
 def _run_target_locked(result_id: int) -> str:
     factory = session_factory()
     db = factory()
@@ -349,6 +353,8 @@ def _run_target_locked(result_id: int) -> str:
         db.commit()
         details: dict[str, Any] = {"steps": []}
         attempts = 0
+        applied = False  # the change reached the device; it must never be sent a second time by this job
+        verified = False
         while True:
             attempts += 1
             try:
@@ -374,10 +380,12 @@ def _run_target_locked(result_id: int) -> str:
                                 raise PrecheckFailed("Pre-change backup could not be verified; change not applied")
                             db.commit()
                         results = op.execute(db, sw, drv, params)
+                        applied = True
                         details["steps"].append({"step": "execute", "ok": all(x.ok for x in results),
                                                  "protocols": sorted({x.protocol for x in results}),
                                                  "messages": [x.message for x in results][:20]})
                         ok, vdetails = op.verify(db, sw, drv, params)
+                        verified = ok
                         details["steps"].append({"step": "verify", "ok": ok, **vdetails})
                         if ok and op.saves_config:
                             drv.write_memory()
@@ -402,6 +410,19 @@ def _run_target_locked(result_id: int) -> str:
                 r = db.get(ChangeJobResult, result_id)
                 sw = db.get(Switch, r.switch_id)
                 details["steps"].append({"step": "error", "ok": False, "attempt": attempts, **exc.to_dict()})
+                if applied:
+                    # The device accepted the change; only the read-back (or saving) failed. Re-running the
+                    # change would apply it twice and take another pre-change backup, so stop here.
+                    r.status = "verify_failed"
+                    kind = "credential error" if exc.code in CREDENTIAL_ERRORS else "device error"
+                    if verified:
+                        r.message = (f"Change applied and verified, but saving to startup-config failed ({kind}): "
+                                     f"{exc.message}")[:500]
+                    else:
+                        r.message = (f"Change applied, verification failed ({kind}): {exc.message}. "
+                                     "The configuration was not saved to startup-config.")[:500]
+                    details["applied"] = True
+                    break
                 if exc.retriable and attempts <= job.max_retries:
                     time.sleep(min(2 * attempts, 5))
                     continue

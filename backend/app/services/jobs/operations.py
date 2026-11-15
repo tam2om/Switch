@@ -392,8 +392,8 @@ class PortSpeed(Operation):
         return [drv.set_port_speed_duplex(p.port, p.mode)]
 
     def verify(self, db: Session, sw: Switch, drv: SwitchDriver, p: PortSpeedParams) -> tuple[bool, dict]:
-        state = {x.name: x.config_mode for x in drv.get_ports()}
-        return state.get(p.port) == p.mode, {"actual": state.get(p.port)}
+        state = drv.get_port_config_modes([p.port])
+        return state.get(p.port) == p.mode, {"actual": state.get(p.port), "expected": p.mode}
 
 
 class PortVlan(Operation):

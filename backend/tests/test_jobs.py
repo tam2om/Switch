@@ -266,3 +266,55 @@ def test_change_waits_for_other_change_on_same_switch_and_fails_closed(client, d
     port = db.execute(select(SwitchPort).where(SwitchPort.switch_id == ids[0], SwitchPort.name == "7")).scalar_one()
     db.refresh(port)
     assert port.description != "Blocked"
+
+
+def test_speed_change_verified_from_running_config_without_rest(client, db, sim_switches):
+    ids = _prep(sim_switches)
+    ip = db.get(Switch, ids[0]).mgmt_ip
+    st.mutate(ip, lambda s: setattr(s, "unsupported_rest", ["/ports", "/cli"]))  # no REST port data or CLI
+    make_user(db, "admin", "ops")
+    login(client, "ops")
+    r = client.post("/api/v1/jobs", json={"operation": "port_speed", "switch_ids": ids,
+                                          "params": {"port": "5", "mode": "100-full"}})
+    job = client.get(f"/api/v1/jobs/{r.json()['id']}").json()
+    res = job["results"][0]
+    verify = next(s for s in res["details"]["steps"] if s["step"] == "verify")
+    assert res["status"] == "success" and verify["actual"] == "100-full", res
+    r = client.post("/api/v1/jobs", json={"operation": "port_speed", "switch_ids": ids,
+                                          "params": {"port": "5", "mode": "auto"}})
+    res = client.get(f"/api/v1/jobs/{r.json()['id']}").json()["results"][0]
+    verify = next(s for s in res["details"]["steps"] if s["step"] == "verify")
+    assert res["status"] == "success" and verify["actual"] == "auto", res
+    st.mutate(ip, lambda s: setattr(s, "unsupported_rest", []))
+
+
+def test_applied_change_is_not_rerun_when_readback_credential_fails(client, db, sim_switches, monkeypatch):
+    from app.drivers.base import DriverError
+    from app.services.jobs import operations
+
+    ids = _prep(sim_switches)
+    op = operations.REGISTRY["port_description"]
+    calls = []
+    real_execute = op.execute
+
+    def counting_execute(*a, **kw):
+        calls.append(1)
+        return real_execute(*a, **kw)
+
+    def failing_verify(*a, **kw):
+        raise DriverError("auth_failed", "SNMP credential rejected: unknown SNMPv3 user name", protocol="snmp",
+                          retriable=True)
+
+    monkeypatch.setattr(op, "execute", counting_execute)
+    monkeypatch.setattr(op, "verify", failing_verify)
+    make_user(db, "admin", "ops")
+    login(client, "ops")
+    r = client.post("/api/v1/jobs", json={"operation": "port_description", "switch_ids": ids,
+                                          "params": {"items": [{"port": "7", "description": "Once"}]}})
+    res = client.get(f"/api/v1/jobs/{r.json()['id']}").json()["results"][0]
+    assert res["status"] == "verify_failed" and res["attempts"] == 1 and len(calls) == 1
+    assert "Change applied, verification failed (credential error)" in res["message"]
+    assert res["details"]["applied"] is True
+    backups = db.query(ConfigBackup).filter_by(switch_id=ids[0], trigger="pre_change").count()
+    assert backups == 1
+    assert st.store.get(db.get(Switch, ids[0]).mgmt_ip).ports["7"].description == "Once"

@@ -28,3 +28,29 @@ def normalize_config(text: str) -> str:
 
 def looks_like_config(text: str) -> bool:
     return "hostname" in text and ("vlan " in text or "interface " in text)
+
+
+_IFACE_RE = re.compile(r"^interface\s+(\S+)\s*$")
+_SPEED_RE = re.compile(r"^\s+speed-duplex\s+(\S+)\s*$")
+
+
+def port_speed_modes(config: str) -> dict[str, str]:
+    """Configured speed-duplex per port from a running-config. Ports without a `speed-duplex` line are 'auto'
+    (AOS-Switch only writes non-default settings); ports never mentioned are absent from the result."""
+    out: dict[str, str] = {}
+    current: str | None = None
+    for line in config.splitlines():
+        m = _IFACE_RE.match(line)
+        if m:
+            current = m.group(1)
+            out.setdefault(current, "auto")
+            continue
+        if current is None:
+            continue
+        if line.strip() == "exit" or not line.startswith((" ", "\t")):
+            current = None
+            continue
+        s = _SPEED_RE.match(line)
+        if s:
+            out[current] = s.group(1)
+    return out

@@ -56,6 +56,17 @@ set on one switch overrides the default for that switch.
 | SNMPv3 | Monitoring only | authPriv with SHA/SHA-256/SHA-512 and AES-128/192/256; counters, health, fallback reads |
 | SSH | Monitoring / configuration | Fallback for configuration text and allow-listed CLI changes; requires a trusted host key |
 
+**Rejected credentials**: when a switch refuses a monitoring credential (for SNMPv3: unknown user, wrong
+authentication or privacy passphrase), the switch shows "warning" with a red "SNMP credential rejected" notice on
+its page, and the switch is listed under **Rejected by switches** at the top of this page with a button to set a
+new credential. The notice clears on the next successful poll over that protocol.
+
+**Changes without a REST configuration credential**: changes then go over SSH, and the read-back uses SNMP or the
+running-config (speed/duplex is read from the running-config). If the change was applied but the read-back fails
+(for example because the SNMP credential is rejected), the job shows "Change applied, verification failed
+(credential error)". The change is not sent a second time and the configuration is not saved to startup-config. Fix
+the credential, check the port, and save the configuration or run the change again.
+
 **SSH host keys**: on a switch's Security tab, fetch the host key, compare the fingerprint with the switch console
 (`show crypto host-public-key fingerprint`), then trust it. Until then the application refuses SSH to that switch.
 

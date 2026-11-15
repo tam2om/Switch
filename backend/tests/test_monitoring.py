@@ -175,3 +175,41 @@ def test_stale_flag(client, db, sim_switches):
     login(client, "stale-viewer")
     d = client.get(f"/api/v1/switches/{ids[0]}").json()
     assert d["metrics"]["stale"] is True and d["metrics"]["cpu_pct"] is None  # never measured -> no values
+
+
+def test_rejected_snmp_credential_is_reported_and_cleared(client, db, sim_switches):
+    from app.services import credentials
+
+    ids = sim_switches(1)
+    polling.run_category("health", ids)
+    credentials.upsert(db, switch_id=ids[0], kind="snmpv3", purpose="monitor", username="sim-snmp",
+                       secrets={"auth_password": "wrongwrong", "priv_password": "wrongwrong"})
+    db.commit()
+    polling.run_category("health", ids)
+    make_user(db, "viewer", "viewer3")
+    login(client, "viewer3")
+    sw = client.get(f"/api/v1/switches/{ids[0]}").json()
+    assert sw["status"] == "warning" and sw["credential_problems"]["snmp"]["code"] == "auth_failed"
+    listed = client.get("/api/v1/switches", params={"page_size": 50}).json()["items"]
+    assert next(s for s in listed if s["id"] == ids[0])["credential_problems"]["snmp"]
+    from app.drivers.simulator.driver import SIM_CREDENTIALS as C
+
+    credentials.upsert(db, switch_id=ids[0], kind="snmpv3", purpose="monitor", username=C["snmpv3"]["username"],
+                       secrets={"auth_password": C["snmpv3"]["auth_password"],
+                                "priv_password": C["snmpv3"]["priv_password"]},
+                       params={"auth_protocol": "sha", "priv_protocol": "aes"})
+    db.commit()
+    polling.run_category("health", ids)
+    sw = client.get(f"/api/v1/switches/{ids[0]}").json()
+    assert sw["status"] == "online" and sw["credential_problems"] == {}
+
+
+def test_snmp_report_pdus_are_classified_as_credential_errors():
+    from app.drivers.aruba.aos_switch.snmp_client import snmp_indication_error
+
+    e = snmp_indication_error("Unknown USM user")
+    assert e.code == "auth_failed" and not e.retriable and "username" in e.message
+    assert snmp_indication_error("Wrong SNMP PDU digest").code == "auth_failed"
+    assert snmp_indication_error("Decryption error").code == "auth_failed"
+    t = snmp_indication_error("No SNMP response received before timeout")
+    assert t.code == "timeout" and t.retriable

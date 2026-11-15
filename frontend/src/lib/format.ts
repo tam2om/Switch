@@ -87,3 +87,5 @@ export function parseList(input: string): string[] {
 
 export const PASSWORD_HINT =
   "At least 12 characters with three of: lowercase, uppercase, digits, symbols. Must not contain your username.";
+
+export const PROTOCOL_LABEL: Record<string, string> = { rest: "REST", snmp: "SNMP", ssh: "SSH" };

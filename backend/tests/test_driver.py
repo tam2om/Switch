@@ -408,3 +408,10 @@ def test_snmp_membership_and_poe_parse_real_2540_walk():
     assert (ports["5"].detection_status, ports["5"].power_drawn_w) == ("delivering", 3.5)
     assert all(p.detection_status == "searching" for n, p in ports.items() if n not in ("4", "5"))
     assert all(p.enabled and p.priority == "low" and p.allocation_method == "usage" for p in ports.values())
+
+
+def test_port_speed_modes_from_running_config():
+    from app.drivers.aruba.aos_switch.configuration import port_speed_modes
+
+    cfg = 'hostname "x"\ninterface 5\n   name "cam"\n   speed-duplex 100-full\n   exit\ninterface A7\n   disable\n   exit\nvlan 1\n   name "DEFAULT_VLAN"\n   exit\n'
+    assert port_speed_modes(cfg) == {"5": "100-full", "A7": "auto"}

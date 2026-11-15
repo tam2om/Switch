@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, Card, ConfirmDialog, Empty, ErrorBox, Field, Input, Loadable, Modal, Notice, PageHeader, Select, Table, Td, Th, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
-import { fmtDate } from "@/lib/format";
+import { PROTOCOL_LABEL, fmtDate } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 import type { Credential, Page, SwitchRow } from "@/lib/types";
 
@@ -124,6 +124,9 @@ export default function CredentialsPage() {
   const [del, setDel] = useState<Credential | null>(null);
   const names = useMemo(() => Object.fromEntries((sw.data?.items || []).map((s) => [s.id, s.hostname])), [sw.data]);
   const rows = (data || []).filter((c) => (scope === "default" ? c.switch_id === null : scope === "all" ? true : String(c.switch_id) === scope));
+  const rejected = (sw.data?.items || []).flatMap((s) =>
+    Object.entries(s.credential_problems || {}).map(([proto, p]) => ({ sw: s, proto, p: p! })),
+  );
   return (
     <div>
       <PageHeader
@@ -131,6 +134,36 @@ export default function CredentialsPage() {
         subtitle="Fleet defaults apply to every switch unless a switch has its own credential"
         actions={<Button variant="primary" onClick={() => setEdit({ switch_id: scope !== "default" && scope !== "all" ? scope : "" })}>Set credential</Button>}
       />
+      {rejected.length > 0 && (
+        <Card title={`Rejected by switches (${rejected.length})`} bodyClassName="p-0" className="mb-4">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Switch</Th>
+                <Th>Protocol</Th>
+                <Th>Problem</Th>
+                <Th>Since</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {rejected.map(({ sw: s, proto, p }) => (
+                <tr key={`${s.id}-${proto}`}>
+                  <Td>{s.hostname} <span className="text-xs text-muted">{s.mgmt_ip}</span></Td>
+                  <Td><Badge tone="bad">{PROTOCOL_LABEL[proto] || proto} credential rejected</Badge></Td>
+                  <Td className="text-xs">{p.message}</Td>
+                  <Td className="text-xs">{fmtDate(p.since)}</Td>
+                  <Td className="text-right">
+                    <Button size="sm" variant="ghost" onClick={() => setEdit({ switch_id: String(s.id), kind: proto === "snmp" ? "snmpv3" : proto, purpose: "monitor" })}>
+                      Set credential
+                    </Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
+      )}
       <Card bodyClassName="p-0">
         <div className="border-b border-line p-3">
           <Select aria-label="Scope" className="w-72" value={scope} onChange={(e) => setScope(e.target.value)}>

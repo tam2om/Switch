@@ -205,6 +205,20 @@ class AosSwitchDriver(SwitchDriver):
             raise DriverError("unavailable", "No protocol could read port information")
         return ports.merge_ports(rest_ports, snmp_ports)
 
+    def get_port_config_modes(self, names: list[str] | None = None) -> dict[str, str]:
+        """REST /ports when available; otherwise the running-config (REST CLI or SSH), because IF-MIB does not
+        carry the configured speed-duplex mode. With the running-config, a named port that has no interface block
+        is at the default ('auto'), since AOS-Switch only writes non-default settings."""
+        if self._rest_ok("ports.read"):
+            try:
+                return {p.name: p.config_mode for p in ports.parse_rest_ports(self.rest.get("/ports")) if p.config_mode}
+            except DriverError as exc:
+                self._fallback("ports.read", exc)
+        modes = configuration.port_speed_modes(self.get_running_config().text)
+        for name in names or []:
+            modes.setdefault(cli.port(name), "auto")
+        return modes
+
     def get_port_counters(self) -> list[PortCounters]:
         return ports.snmp_counters(self.snmp)
 

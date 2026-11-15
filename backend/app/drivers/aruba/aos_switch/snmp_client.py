@@ -133,7 +133,7 @@ class PySnmpTransport:
             err_ind, err_status, _idx, binds = await h.get_cmd(
                 engine, self._auth(), target, h.ContextData(), *[h.ObjectType(h.ObjectIdentity(o)) for o in oids])
             if err_ind:
-                raise DriverError("snmp_error", f"SNMP: {err_ind}", protocol="snmp", retriable=True)
+                raise snmp_indication_error(err_ind)
             if err_status:
                 raise DriverError("snmp_error", f"SNMP: {err_status.prettyPrint()}", protocol="snmp")
             out: dict[str, Any] = {}
@@ -155,7 +155,7 @@ class PySnmpTransport:
                     engine, self._auth(), target, h.ContextData(), 0, 25, h.ObjectType(h.ObjectIdentity(oid)),
                     lexicographicMode=False):
                 if err_ind:
-                    raise DriverError("snmp_error", f"SNMP: {err_ind}", protocol="snmp", retriable=True)
+                    raise snmp_indication_error(err_ind)
                 if err_status:
                     raise DriverError("snmp_error", f"SNMP: {err_status.prettyPrint()}", protocol="snmp")
                 for name, val in binds:
@@ -169,6 +169,32 @@ class PySnmpTransport:
 
     def walk(self, oid: str) -> list[tuple[str, Any]]:  # pragma: no cover - requires network
         return asyncio.run(self._awalk(oid))
+
+
+# SNMPv3 report PDUs that mean the credential itself was refused (RFC 3414 usmStats*). Retrying cannot help.
+_CREDENTIAL_INDICATIONS = (
+    ("unknown usm user", "unknown SNMPv3 user name (check the username)"),
+    ("unknownusername", "unknown SNMPv3 user name (check the username)"),
+    ("wrong snmp pdu digest", "wrong authentication passphrase or protocol"),
+    ("wrongdigest", "wrong authentication passphrase or protocol"),
+    ("decryption error", "wrong privacy passphrase or protocol"),
+    ("decryptionerror", "wrong privacy passphrase or protocol"),
+    ("unsupported security level", "security level not accepted (authPriv required)"),
+    ("unsupportedseclevel", "security level not accepted (authPriv required)"),
+)
+
+
+def snmp_indication_error(indication: Any) -> DriverError:
+    """Map a pysnmp error indication to a DriverError; credential rejections become non-retriable auth_failed."""
+    text = str(indication)
+    low = text.lower().replace("_", "")
+    for needle, why in _CREDENTIAL_INDICATIONS:
+        if needle in low:
+            return DriverError("auth_failed", f"SNMP credential rejected: {why}", protocol="snmp",
+                               details={"indication": text})
+    if "timeout" in low or "no snmp response" in low:
+        return DriverError("timeout", f"SNMP: {text}", protocol="snmp", retriable=True)
+    return DriverError("snmp_error", f"SNMP: {text}", protocol="snmp", retriable=True)
 
 
 def _convert(val: Any) -> Any:  # pragma: no cover - requires pysnmp value types

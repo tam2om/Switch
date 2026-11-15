@@ -59,11 +59,35 @@ def _switch_metric(db: Session, sw: Switch, **values: Any) -> None:
     db.execute(stmt.on_conflict_do_nothing())
 
 
+CREDENTIAL_ERROR_CODES = ("auth_failed", "no_credentials", "host_key_untrusted", "host_key_mismatch")
+
+
+def set_credential_problem(sw: Switch, protocol: str, exc: DriverError | None) -> None:
+    """Remember (or clear) a monitoring credential the switch refused, per protocol, for the switch page and the
+    Device credentials page. Kept in switches.capabilities so it survives until the protocol works again."""
+    if protocol not in ("rest", "snmp", "ssh"):
+        return
+    caps = dict(sw.capabilities or {})
+    problems = dict(caps.get("credential_problems") or {})
+    if exc is None:
+        if protocol not in problems:
+            return
+        problems.pop(protocol)
+    else:
+        prev = problems.get(protocol) or {}
+        problems[protocol] = {"code": exc.code, "message": exc.message[:255],
+                              "since": prev.get("since") or utcnow().isoformat(), "last_seen": utcnow().isoformat()}
+    caps["credential_problems"] = problems
+    sw.capabilities = caps
+
+
 def _mark_failure(db: Session, sw: Switch, exc: DriverError) -> None:
     sw.poll_failures = (sw.poll_failures or 0) + 1
     sw.last_poll_at = utcnow()
     sw.status_reason = f"{exc.protocol or 'device'}: {exc.message}"[:255]
-    if exc.code in ("auth_failed", "no_credentials", "host_key_untrusted", "host_key_mismatch", "simulator_disabled"):
+    if exc.code in CREDENTIAL_ERROR_CODES and exc.code != "no_credentials":
+        set_credential_problem(sw, exc.protocol, exc)
+    if exc.code in (*CREDENTIAL_ERROR_CODES, "simulator_disabled"):
         # Reachable but misconfigured: warning, not offline.
         if sw.status != "offline":
             sw.status = "warning"
@@ -162,6 +186,7 @@ def poll_availability(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
 def poll_counters(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
     counters = drv.get_port_counters()
     _mark_success(db, sw)
+    set_credential_problem(sw, "snmp", None)
     ports = _port_map(db, sw)
     now = utcnow()
     ts = now.timestamp()
@@ -223,6 +248,7 @@ def poll_counters(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
 def poll_health(db: Session, sw: Switch, drv: SwitchDriver, include_temperature: bool = False) -> dict:
     h = drv.get_health(include_temperature=include_temperature)
     _mark_success(db, sw)
+    set_credential_problem(sw, "snmp", None)
     sw.cpu_pct, sw.mem_pct, sw.uptime_seconds = h.cpu_pct, h.mem_pct, h.uptime_seconds
     if include_temperature:
         sw.temperature_c = h.temperature_c
@@ -373,9 +399,18 @@ def sync_inventory(db: Session, sw: Switch, drv: SwitchDriver) -> dict:
     caps = drv.probe()
     info = drv.get_system()
     _mark_success(db, sw)
+    problems = dict((sw.capabilities or {}).get("credential_problems") or {})
     sw.capabilities = {"rest": caps.get("rest"), "snmp": caps.get("snmp"), "ssh": caps.get("ssh"),
                        "resources": caps.get("resources", {}), "errors": caps.get("errors", [])[:20],
-                       "probed_at": utcnow().isoformat()}
+                       "probed_at": utcnow().isoformat(), "credential_problems": problems}
+    for proto in ("rest", "snmp", "ssh"):
+        if caps.get(proto) is True:
+            set_credential_problem(sw, proto, None)
+        elif caps.get(proto) is False:
+            for e in caps.get("errors", []):
+                if e.get("protocol") == proto and e.get("code") in CREDENTIAL_ERROR_CODES:
+                    set_credential_problem(sw, proto, DriverError(e["code"], e.get("message", ""), protocol=proto))
+                    break
     if caps.get("rest_version"):
         sw.rest_api_version = caps["rest_version"]
     if info.hostname:

@@ -196,6 +196,10 @@ class SwitchDriver(abc.ABC):
     @abc.abstractmethod
     def get_ports(self) -> list[PortInfo]: ...
 
+    def get_port_config_modes(self, names: list[str] | None = None) -> dict[str, str]:
+        """Configured speed-duplex per port name ('auto', '100-full', ...). Defaults to get_ports()."""
+        return {p.name: p.config_mode for p in self.get_ports() if p.config_mode}
+
     def get_port_status(self) -> list[PortInfo]:
         """Lightweight status poll (admin/oper state, speed). Defaults to get_ports()."""
         return self.get_ports()

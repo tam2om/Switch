@@ -17,7 +17,8 @@ def switch_out(sw: Switch, stale_after: int = 180, groups: list[dict] | None = N
     poll_age = _age(sw.last_success_at)
     return {
         "id": sw.id, "hostname": sw.hostname, "mgmt_ip": sw.mgmt_ip, "status": sw.status,
-        "status_reason": sw.status_reason, "is_simulated": sw.is_simulated, "driver": sw.driver,
+        "status_reason": sw.status_reason,
+        "credential_problems": (sw.capabilities or {}).get("credential_problems") or {}, "is_simulated": sw.is_simulated, "driver": sw.driver,
         "product_number": sw.product_number, "model_name": sw.model_name or (sw.model.name if sw.model else None),
         "model_verified": bool(sw.model and sw.model.hardware_verified),
         "serial_number": sw.serial_number, "base_mac": sw.base_mac, "firmware": sw.firmware,

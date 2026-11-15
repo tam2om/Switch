@@ -49,12 +49,21 @@ export interface SwitchMetrics {
   poe_consumed_w: number | null;
 }
 
+export interface CredentialProblem {
+  code: string;
+  message: string;
+  since: string;
+  last_seen: string;
+}
+
 export interface SwitchRow {
   id: number;
   hostname: string;
   mgmt_ip: string;
   status: SwitchStatus;
   status_reason: string;
+  /** Monitoring credentials the switch currently refuses, by protocol (rest | snmp | ssh). */
+  credential_problems: Partial<Record<"rest" | "snmp" | "ssh", CredentialProblem>>;
   is_simulated: boolean;
   driver: string;
   product_number: string | null;
